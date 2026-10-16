@@ -1,0 +1,7 @@
+text,category,priority,group_id
+"O relatório do cliente precisa de revisão até hoje às 17h.",trabalho,urgente,exemplo-conversa-001
+"Complementando o pedido: confira também a tabela final do relatório do cliente de hoje.",trabalho,urgente,exemplo-conversa-001
+"Os slides da aula estão disponíveis para consulta. Nenhuma atividade foi solicitada.",faculdade,baixa,exemplo-conversa-002
+"A fatura está disponível e vence na próxima semana. Confira os lançamentos.",financeiro,normal,exemplo-conversa-003
+"Vamos marcar um café? Me avise qual dia funciona para você.",pessoal,normal,exemplo-conversa-004
+"Última chance para aproveitar nossa promoção! Newsletter comercial.",promocoes,baixa,exemplo-conversa-005

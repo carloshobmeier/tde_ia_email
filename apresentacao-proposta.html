@@ -1,0 +1,1238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Assistente de E-mail Local — Proposta TDE 2</title>
+
+<!-- Fonts: Instrument Serif (títulos), Courier Prime (texto "datilografado"), Archivo Narrow (rótulos) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Courier+Prime:wght@400;700&family=Archivo+Narrow:wght@500;700&display=swap" rel="stylesheet">
+
+<style>
+/* ===========================================
+   CSS CUSTOM PROPERTIES (THEME)
+   Troque as cores/fontes aqui para mudar o deck inteiro
+   =========================================== */
+:root {
+    --stage-bg: #1b2a4a;          /* cor das faixas fora do slide (letterbox) */
+    --slide-bg: #f3ece0;
+    --paper: #f3ece0;             /* papel do envelope */
+    --paper-light: #fbf8f2;       /* cartas / selos */
+    --navy: #1b2a4a;
+    --red: #cf3a2b;
+    --grey: #8a8579;
+    --ink: #22201c;
+    --ink-soft: rgba(34, 32, 28, 0.62);
+    --line: rgba(34, 32, 28, 0.25);
+
+    --font-display: 'Instrument Serif', Georgia, serif;
+    --font-type: 'Courier Prime', 'Courier New', monospace;
+    --font-label: 'Archivo Narrow', 'Arial Narrow', sans-serif;
+
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-thump: cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* ===========================================
+   FIXED 16:9 STAGE: MANDATORY BASE STYLES
+   (conteúdo integral de viewport-base.css)
+   =========================================== */
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: var(--stage-bg, #000);
+}
+.deck-viewport {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--stage-bg, #000);
+}
+.deck-stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    transform-origin: 0 0;
+    background: var(--slide-bg, #fff);
+}
+.slide {
+    position: absolute;
+    inset: 0;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    display: block;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    background: var(--slide-bg, #fff);
+}
+.slide.active,
+.slide.visible {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    z-index: 1;
+}
+img,
+video,
+canvas,
+svg {
+    max-width: 100%;
+    max-height: 100%;
+}
+.deck-controls {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    z-index: 1000;
+}
+@media print {
+    html,
+    body {
+        width: 1920px;
+        height: auto;
+        overflow: visible;
+        background: #fff;
+    }
+    .deck-viewport {
+        position: static;
+        overflow: visible;
+        background: #fff;
+    }
+    .deck-stage {
+        position: static;
+        width: auto;
+        height: auto;
+        transform: none !important;
+        background: none;
+    }
+    .slide {
+        position: relative;
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        width: 1920px;
+        height: 1080px;
+        break-after: page;
+        page-break-after: always;
+    }
+    .slide:last-child {
+        break-after: auto;
+        page-break-after: auto;
+    }
+    .deck-controls {
+        display: none !important;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.2s !important;
+    }
+}
+
+/* ===========================================
+   ENVELOPE FRAME (todo slide)
+   Borda de correio aéreo + papel com leve textura
+   =========================================== */
+.airmail {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(-45deg,
+        var(--red) 0 44px, var(--paper) 44px 62px,
+        var(--navy) 62px 106px, var(--paper) 106px 124px);
+}
+.envelope {
+    position: absolute;
+    inset: 34px;                       /* área útil: 1852 × 1012 */
+    background-color: var(--paper);
+    background-image: radial-gradient(rgba(34, 32, 28, 0.035) 1px, transparent 1px);
+    background-size: 6px 6px;
+}
+
+/* ===========================================
+   CHROME, KICKER E TÍTULO (slides de conteúdo)
+   =========================================== */
+.chrome {
+    position: absolute;
+    left: 116px;
+    right: 116px;
+    top: 44px;
+    display: flex;
+    justify-content: space-between;
+    font: 400 22px/1 var(--font-type);
+    color: var(--ink-soft);
+}
+.kicker {
+    position: absolute;
+    left: 116px;
+    top: 118px;
+    font: 700 24px/1 var(--font-label);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--red);
+}
+.headline {
+    position: absolute;
+    left: 112px;
+    top: 160px;
+    width: 1300px;
+    font: 400 116px/0.96 var(--font-display);
+    letter-spacing: -0.01em;
+    color: var(--ink);
+}
+.headline em { color: var(--red); }
+
+/* ===========================================
+   POSTAGE STAMP (selo com picote)
+   O picote é um SVG gerado em JS (perforateStamps)
+   =========================================== */
+.stamp {
+    position: absolute;
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.14));
+}
+.stamp > svg.perf {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.stamp-inner {
+    position: absolute;
+    inset: 18px;
+    background: var(--navy);
+    color: var(--paper);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 18px 20px;
+}
+.stamp-inner .l {
+    font: 700 17px/1.25 var(--font-label);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+.stamp-inner .l span { color: #f0a99f; display: block; }
+
+/* Selo grande da capa */
+.stamp-hero { right: 120px; top: 100px; width: 300px; height: 350px; }
+.stamp-hero .stamp-inner { inset: 22px; padding: 24px; }
+.stamp-hero .v { font: italic 400 120px/0.8 var(--font-display); color: var(--paper); }
+.stamp-hero .l { font-size: 21px; letter-spacing: 0.12em; }
+
+/* Selo de "peso na nota" (canto superior direito) */
+.stamp-weight { right: 116px; top: 96px; width: 190px; height: 224px; }
+.stamp-weight .v { font: italic 400 84px/0.85 var(--font-display); color: var(--paper); }
+
+/* ===========================================
+   POSTMARK (carimbo circular + linhas onduladas)
+   =========================================== */
+.postmark { position: absolute; pointer-events: none; }
+.postmark svg { width: 100%; height: 100%; overflow: visible; }
+.postmark path,
+.postmark circle {
+    stroke-dasharray: 1400;
+    stroke-dashoffset: 1400;
+    transition: stroke-dashoffset 1.6s var(--ease-out-expo) 0.5s;
+}
+.visible .postmark path,
+.visible .postmark circle { stroke-dashoffset: 0; }
+.postmark text { opacity: 0; transition: opacity 0.6s ease 0.9s; }
+.visible .postmark text { opacity: 1; }
+
+/* ===========================================
+   RUBBER STAMP (carimbo de prioridade)
+   --rot: rotação | --sd: atraso da "batida"
+   =========================================== */
+.rubber {
+    display: inline-block;
+    font: 700 64px/1 var(--font-label);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--c, var(--red));
+    border: 7px solid currentColor;
+    padding: 16px 30px 12px;
+    border-radius: 10px;
+    mix-blend-mode: multiply;
+    white-space: nowrap;
+    rotate: var(--rot, -8deg);
+    opacity: 0;
+    transform: scale(1.9);
+    transition: opacity 0.2s ease var(--sd, 0.9s),
+                transform 0.45s var(--ease-thump) var(--sd, 0.9s);
+}
+.visible .rubber { opacity: 0.9; transform: scale(1); }
+.rubber small {
+    display: block;
+    font: 500 22px/1.2 var(--font-label);
+    letter-spacing: 0.2em;
+    margin-top: 8px;
+    text-align: center;
+}
+.rubber.navy { --c: var(--navy); }
+.rubber.grey { --c: var(--grey); }
+.rubber.md { font-size: 40px; border-width: 5px; padding: 12px 22px 9px; border-radius: 8px; }
+.rubber.sm { font-size: 28px; border-width: 4px; padding: 8px 16px 6px; border-radius: 6px; }
+.rubber.xs { font-size: 20px; border-width: 3px; padding: 6px 12px 4px; border-radius: 5px; }
+
+/* ===========================================
+   LETTER (carta/cartão com borda aérea mini)
+   =========================================== */
+.letter {
+    position: relative;
+    background: var(--paper-light);
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.04), 0 12px 26px rgba(34, 32, 28, 0.13);
+}
+.letter::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    background: repeating-linear-gradient(-45deg,
+        var(--red) 0 8px, var(--paper-light) 8px 12px,
+        var(--navy) 12px 20px, var(--paper-light) 20px 24px);
+}
+
+/* Etiqueta de categoria */
+.tag {
+    display: inline-block;
+    font: 400 26px/1 var(--font-type);
+    color: var(--ink);
+    border: 2px solid var(--ink);
+    border-radius: 999px;
+    padding: 10px 22px;
+    white-space: nowrap;
+}
+
+/* ===========================================
+   SLIDE 1 — CAPA
+   =========================================== */
+.cover-title {
+    position: absolute;
+    left: 150px;
+    top: 200px;
+    width: 1180px;
+    font: 400 188px/0.9 var(--font-display);
+    letter-spacing: -0.01em;
+    color: var(--ink);
+}
+.cover-title em { color: var(--red); }
+.nowrap { white-space: nowrap; }
+.address {
+    position: absolute;
+    left: 150px;
+    top: 690px;
+    width: 1100px;
+    font: 400 30px/1.55 var(--font-type);
+    color: var(--ink);
+}
+.address b { font-weight: 700; display: inline-block; width: 190px; color: var(--navy); }
+.cover-postmark { right: 300px; top: 290px; width: 330px; height: 230px; }
+.cover-urgent { position: absolute; right: 150px; bottom: 150px; --sd: 1.1s; }
+
+/* ===========================================
+   SLIDE 2 — O PROBLEMA (pilha de cartas)
+   =========================================== */
+.problem-note {
+    position: absolute;
+    left: 116px;
+    top: 640px;
+    width: 800px;
+    font: 400 32px/1.5 var(--font-type);
+    color: var(--ink);
+}
+.pile { position: absolute; left: 1010px; top: 190px; width: 720px; }
+.pile .letter {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 26px 36px 26px 48px;
+    margin-bottom: 4px;
+}
+.pile .letter:nth-child(1) { rotate: -1.4deg; margin-left: 10px; }
+.pile .letter:nth-child(2) { rotate: 1.1deg; margin-left: -20px; }
+.pile .letter:nth-child(3) { rotate: -0.6deg; margin-left: 24px; z-index: 2; }
+.pile .letter:nth-child(4) { rotate: 1.6deg; margin-left: 0; }
+.pile .letter:nth-child(5) { rotate: -1deg; margin-left: -14px; }
+.pile .from { font: 400 22px/1 var(--font-type); color: var(--ink-soft); }
+.pile .subj { font: 700 32px/1.1 var(--font-label); color: var(--ink); }
+.pile .rubber { position: absolute; right: 30px; top: 30px; }
+
+/* ===========================================
+   SLIDE 3 — A PROPOSTA (três verbos)
+   =========================================== */
+.proposal-headline { width: 1560px; }
+.trio {
+    position: absolute;
+    left: 116px;
+    right: 116px;
+    top: 520px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+}
+.trio .col { padding: 30px 48px 0; border-left: 3px dashed var(--line); }
+.trio .col:first-child { border-left: 0; padding-left: 0; }
+.trio .n { font: 400 24px/1 var(--font-type); color: var(--ink-soft); }
+.trio .verb { font: 400 104px/1 var(--font-display); color: var(--ink); margin: 16px 0 18px; }
+.trio .what { font: 500 34px/1.25 var(--font-label); color: var(--ink); }
+.trio .by { margin-top: 34px; }
+
+/* ===========================================
+   SLIDE 4 — ARQUITETURA (rota com 4 estações)
+   =========================================== */
+.route {
+    position: absolute;
+    left: 318px;
+    width: 1216px;
+    top: 588px;
+    border-top: 4px dashed var(--navy);
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path 1.4s var(--ease-out-expo) 0.3s;
+}
+.visible .route { clip-path: inset(0 0 0 0); }
+.station {
+    position: absolute;
+    top: 495px;
+    width: 400px;
+    margin-left: -200px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+.ring {
+    width: 190px;
+    height: 190px;
+    border-radius: 50%;
+    background: var(--paper);
+    border: 3px solid var(--rc, rgba(34, 32, 28, 0.6));
+    outline: 3px solid var(--rc, rgba(34, 32, 28, 0.6));
+    outline-offset: 9px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+.ring.ai { --rc: var(--red); }
+.ring .num { font: 700 26px/1 var(--font-type); color: var(--ink-soft); }
+.ring .nm { font: 700 30px/1 var(--font-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); }
+.ring.ai .nm { color: var(--red); }
+.station .desc { margin-top: 44px; font: 500 30px/1.25 var(--font-label); color: var(--ink); }
+.stackline {
+    position: absolute;
+    left: 116px;
+    right: 116px;
+    top: 890px;
+    border-top: 2px solid var(--line);
+    padding-top: 24px;
+    font: 400 26px/1 var(--font-type);
+    color: var(--ink);
+}
+.stackline b { font: 700 20px/1 var(--font-label); letter-spacing: 0.18em; color: var(--red); margin-right: 24px; }
+
+/* ===========================================
+   SLIDE 5 — MACHINE LEARNING
+   =========================================== */
+.qa {
+    position: absolute;
+    left: 116px;
+    right: 116px;
+    top: 450px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 90px;
+}
+.qa .q { font: italic 400 72px/1 var(--font-display); color: var(--ink); margin-bottom: 36px; }
+.qa .row { display: flex; flex-wrap: wrap; gap: 30px; align-items: center; }
+.qa .tags { gap: 16px; }
+.facts {
+    position: absolute;
+    left: 116px;
+    right: 116px;
+    top: 790px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 50px;
+    border-top: 2px solid var(--line);
+    padding-top: 30px;
+}
+.lbl {
+    display: block;
+    font: 700 20px/1 var(--font-label);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 14px;
+}
+.facts p { font: 400 27px/1.35 var(--font-type); color: var(--ink); }
+
+/* ===========================================
+   SLIDE 6 — LLM LOCAL
+   =========================================== */
+.tasks { position: absolute; left: 116px; top: 460px; width: 900px; list-style: none; }
+.tasks li {
+    display: flex;
+    align-items: baseline;
+    gap: 34px;
+    padding: 22px 0;
+    border-bottom: 2px dashed var(--line);
+    font: 400 62px/1.05 var(--font-display);
+    color: var(--ink);
+}
+.tasks li .n { font: 700 26px/1 var(--font-type); color: var(--red); }
+.why {
+    position: absolute;
+    left: 1130px;
+    top: 420px;
+    width: 606px;
+    padding: 40px 48px 36px 64px;
+    rotate: 1.5deg;
+}
+.why .ttl { font: italic 400 58px/1 var(--font-display); color: var(--red); margin-bottom: 20px; }
+.why ul { list-style: none; }
+.why li { position: relative; font: 400 28px/1.35 var(--font-type); color: var(--ink); padding: 8px 0 8px 36px; }
+.why li::before { content: "→"; position: absolute; left: 0; color: var(--red); }
+.why .via {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 2px dashed var(--line);
+    font: 700 22px/1.3 var(--font-label);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--navy);
+}
+
+/* ===========================================
+   SLIDE 7 — EXEMPLO DE SAÍDA
+   =========================================== */
+.mail {
+    position: absolute;
+    left: 116px;
+    top: 320px;
+    width: 1000px;
+    padding: 32px 48px 32px 70px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.mail-head { display: flex; gap: 22px; align-items: center; }
+.mail-head .rubber { --sd: 0.7s; --rot: -4deg; }
+.mail .meta { font: 400 26px/1.35 var(--font-type); color: var(--ink); }
+.mail .meta b { color: var(--navy); }
+.field { display: grid; grid-template-columns: 230px 1fr; align-items: baseline; border-top: 2px dashed var(--line); padding-top: 14px; }
+.field .lbl { margin: 0; }
+.field p { font: 500 30px/1.28 var(--font-label); color: var(--ink); }
+.field p.reply { font: 400 26px/1.4 var(--font-type); }
+.btns { display: flex; gap: 16px; }
+.btn {
+    font: 700 22px/1 var(--font-label);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 14px 22px;
+    border: 2px solid var(--navy);
+    border-radius: 6px;
+    color: var(--navy);
+}
+.btn.primary { background: var(--navy); color: var(--paper-light); }
+.queue { position: absolute; left: 1180px; top: 320px; width: 556px; }
+.queue > .lbl { margin-bottom: 20px; }
+.q-item { padding: 22px 30px 22px 44px; margin-bottom: 20px; }
+.q-item .row { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+.q-item .cat { font: 400 22px/1 var(--font-type); color: var(--ink-soft); }
+.q-item .subj { font: 700 30px/1.15 var(--font-label); color: var(--ink); }
+.q-item .act { margin-top: 8px; font: 400 24px/1.3 var(--font-type); color: var(--red); }
+.q-item .rubber { --sd: 0.9s; --rot: -3deg; }
+.caption { position: absolute; left: 1180px; top: 915px; font: 400 20px/1 var(--font-type); color: var(--ink-soft); }
+
+/* ===========================================
+   SLIDE 8 — ÉTICA
+   =========================================== */
+.ethics {
+    position: absolute;
+    left: 116px;
+    right: 116px;
+    top: 450px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+}
+.ethics .cell { padding: 34px 50px 34px 0; border-top: 3px dashed var(--line); }
+.ethics .cell:nth-child(even) { padding-left: 50px; padding-right: 0; border-left: 3px dashed var(--line); }
+.ethics p { font: 400 44px/1.12 var(--font-display); color: var(--ink); }
+
+/* ===========================================
+   SLIDE 9 — CRONOGRAMA + ENCERRAMENTO
+   =========================================== */
+.tl-line {
+    position: absolute;
+    left: 278px;
+    width: 1296px;
+    top: 543px;
+    border-top: 4px dashed var(--navy);
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path 1.4s var(--ease-out-expo) 0.3s;
+}
+.visible .tl-line { clip-path: inset(0 0 0 0); }
+.stop {
+    position: absolute;
+    top: 470px;
+    width: 300px;
+    margin-left: -150px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+.stop .date { font: 700 30px/1 var(--font-type); color: var(--ink); margin-bottom: 30px; }
+.stop .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--paper); border: 4px solid var(--navy); }
+.stop .dot.done { background: var(--navy); }
+.stop .dot.goal { background: var(--red); border-color: var(--red); box-shadow: 0 0 0 9px rgba(207, 58, 43, 0.18); }
+.stop .what { margin-top: 30px; font: 500 30px/1.25 var(--font-label); color: var(--ink); }
+.thanks { position: absolute; left: 112px; top: 790px; font: italic 400 120px/1 var(--font-display); color: var(--ink); }
+.closing-stamp { position: absolute; right: 150px; top: 800px; --rot: -7deg; --sd: 1.2s; }
+
+/* ===========================================
+   ANIMATIONS
+   .reveal entra quando o slide recebe .visible
+   Use --d para escalonar (stagger)
+   =========================================== */
+.reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.9s var(--ease-out-expo), transform 0.9s var(--ease-out-expo);
+    transition-delay: var(--d, 0s);
+}
+.slide.visible .reveal { opacity: 1; transform: none; }
+
+/* ===========================================
+   DECK CHROME (fora do palco): progresso, edição, aviso
+   =========================================== */
+.deck-progress {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    height: 4px;
+    width: 0;
+    background: var(--red);
+    z-index: 1000;
+    transition: width 0.4s var(--ease-out-expo);
+}
+.edit-hotzone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 80px;
+    height: 80px;
+    z-index: 10000;
+    cursor: pointer;
+}
+.edit-toggle {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 10001;
+    font: 700 16px/1 var(--font-label);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--paper-light);
+    color: var(--navy);
+    border: 2px solid var(--navy);
+    border-radius: 6px;
+    padding: 10px 14px;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+.edit-toggle.show,
+.edit-toggle.active { opacity: 1; pointer-events: auto; }
+.edit-toggle.active { background: var(--red); border-color: var(--red); color: #fff; }
+body.editing [contenteditable="true"] { outline: 2px dashed rgba(207, 58, 43, 0.5); outline-offset: 4px; cursor: text; }
+body.editing [contenteditable="true"]:focus { outline-color: var(--red); }
+.toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 10002;
+    font: 400 16px/1.3 var(--font-type);
+    background: var(--navy);
+    color: var(--paper);
+    padding: 12px 16px;
+    border-radius: 6px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="edit-hotzone" aria-hidden="true"></div>
+<button class="edit-toggle" id="editToggle" title="Modo de edição (E)">✎ Editar</button>
+<div class="toast" id="toast" role="status"></div>
+<div class="deck-progress" id="deckProgress"></div>
+
+<div class="deck-viewport">
+<main class="deck-stage" id="deckStage">
+
+<!-- ===========================================
+     SLIDE 1 — CAPA
+     Fala: "Todo mundo recebe e-mail demais. Nossa proposta é um assistente
+     que roda no seu próprio computador, lê a caixa de entrada e diz o que
+     fazer primeiro."
+     =========================================== -->
+<section class="slide" aria-label="Capa">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <h1 class="cover-title reveal" style="--d:0.1s">Assistente de<br><span class="nowrap">e-mail</span> <em>local</em></h1>
+
+    <div class="address reveal" style="--d:0.35s">
+      <div class="ed"><b>DE:</b>Amanda Queiroz · Carlos Hobmeier · João Freitas</div>
+      <div class="ed"><b>PARA:</b>Profs. Joelton · Ana Beatriz</div>
+      <div class="ed"><b>ASSUNTO:</b>TDE 2 — proposta de trabalho</div>
+    </div>
+
+    <div class="stamp stamp-hero reveal" style="--d:0.1s">
+      <div class="stamp-inner">
+        <span class="v">IA</span>
+        <span class="l ed">Processado<span>na sua máquina</span></span>
+      </div>
+    </div>
+
+    <div class="postmark cover-postmark">
+      <svg viewBox="0 0 330 230" fill="none" stroke="#22201c" stroke-opacity="0.55" stroke-width="3">
+        <circle cx="115" cy="115" r="95"/>
+        <circle cx="115" cy="115" r="70"/>
+        <path d="M200 70 q 16 -12 32 0 t 32 0 t 32 0 M200 100 q 16 -12 32 0 t 32 0 t 32 0 M200 130 q 16 -12 32 0 t 32 0 t 32 0 M200 160 q 16 -12 32 0 t 32 0 t 32 0"/>
+        <text x="115" y="108" text-anchor="middle" fill="#22201c" fill-opacity="0.6" stroke="none" font-family="Courier Prime, monospace" font-weight="700" font-size="22">21 SET</text>
+        <text x="115" y="136" text-anchor="middle" fill="#22201c" fill-opacity="0.6" stroke="none" font-family="Courier Prime, monospace" font-weight="700" font-size="22">2026</text>
+      </svg>
+    </div>
+
+    <div class="rubber cover-urgent">Urgente<small>prioridade 1</small></div>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 2 — O PROBLEMA
+     Fala: "A caixa de entrada é organizada por ordem de chegada. O e-mail
+     do prazo de amanhã fica no meio da promoção, da newsletter e da fatura.
+     A gente perde tempo lendo tudo para achar o que importa."
+     =========================================== -->
+<section class="slide" aria-label="O problema">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">01 · O problema</p>
+    <h2 class="headline reveal" style="width:860px; --d:0.1s">O urgente chega junto com <em>todo o resto.</em></h2>
+    <p class="problem-note reveal" style="--d:0.3s">Lemos na ordem de chegada — não na ordem de importância.</p>
+
+    <div class="pile">
+      <div class="letter reveal" style="--d:0.2s"><span class="from ed">De: Blog de tecnologia</span><span class="subj ed">Newsletter da semana</span></div>
+      <div class="letter reveal" style="--d:0.28s"><span class="from ed">De: Loja online</span><span class="subj ed">Últimas horas: 40% OFF</span></div>
+      <div class="letter reveal" style="--d:0.36s"><span class="from ed">De: Coordenação do curso</span><span class="subj ed">Prazo do relatório: amanhã, 9h</span><span class="rubber sm" style="--rot:-6deg; --sd:1s">Urgente</span></div>
+      <div class="letter reveal" style="--d:0.44s"><span class="from ed">De: Banco</span><span class="subj ed">Sua fatura chegou</span></div>
+      <div class="letter reveal" style="--d:0.52s"><span class="from ed">De: Colegas</span><span class="subj ed">Convite: happy hour na sexta</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 3 — A PROPOSTA
+     Fala: "O assistente faz três coisas: classifica (ML), resume e sugere
+     (LLM). Mas quem decide e quem envia é sempre a pessoa."
+     =========================================== -->
+<section class="slide" aria-label="A proposta">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">02 · A proposta</p>
+    <h2 class="headline proposal-headline reveal" style="--d:0.1s">Um assistente que <em>lê por você</em> — e deixa a decisão com você.</h2>
+
+    <div class="trio">
+      <div class="col reveal" style="--d:0.3s">
+        <p class="n">01</p>
+        <p class="verb">Classifica</p>
+        <p class="what">urgência e categoria de cada e-mail</p>
+        <div class="by"><span class="rubber sm" style="--rot:-3deg; --sd:0.9s">Machine learning</span></div>
+      </div>
+      <div class="col reveal" style="--d:0.42s">
+        <p class="n">02</p>
+        <p class="verb">Resume</p>
+        <p class="what">o essencial em até duas linhas</p>
+        <div class="by"><span class="rubber sm navy" style="--rot:2deg; --sd:1s">LLM local</span></div>
+      </div>
+      <div class="col reveal" style="--d:0.54s">
+        <p class="n">03</p>
+        <p class="verb">Sugere</p>
+        <p class="what">a resposta e a próxima ação</p>
+        <div class="by"><span class="rubber sm navy" style="--rot:-2deg; --sd:1.1s">LLM local</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 4 — ENTRADA → PROCESSAMENTO → SAÍDA (25%)
+     Fala: "Entrada: os e-mails, via IMAP ou arquivos .eml. Processamento:
+     o classificador e depois o LLM. Saída: um painel com a fila priorizada
+     e as ações. Tudo em Python, rodando localmente."
+     =========================================== -->
+<section class="slide" aria-label="Arquitetura">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">03 · Entrada → processamento → saída</p>
+    <h2 class="headline reveal" style="--d:0.1s">O caminho de <em>cada e-mail.</em></h2>
+
+    <div class="stamp stamp-weight reveal" style="--d:0.2s">
+      <div class="stamp-inner"><span class="v">25%</span><span class="l">Peso na nota<span>Sistema completo</span></span></div>
+    </div>
+
+    <div class="route"></div>
+    <div class="station reveal" style="left:318px; --d:0.3s">
+      <div class="ring"><span class="num">01</span><span class="nm ed">Entrada</span></div>
+      <p class="desc">E-mails da caixa (IMAP) ou arquivos .eml</p>
+    </div>
+    <div class="station reveal" style="left:723px; --d:0.45s">
+      <div class="ring ai"><span class="num">02</span><span class="nm ed">ML</span></div>
+      <p class="desc">Classifica urgência e categoria</p>
+    </div>
+    <div class="station reveal" style="left:1128px; --d:0.6s">
+      <div class="ring ai"><span class="num">03</span><span class="nm ed">LLM</span></div>
+      <p class="desc">Resume e rascunha a resposta</p>
+    </div>
+    <div class="station reveal" style="left:1533px; --d:0.75s">
+      <div class="ring"><span class="num">04</span><span class="nm ed">Saída</span></div>
+      <p class="desc">Fila priorizada com ações sugeridas</p>
+    </div>
+
+    <p class="stackline reveal" style="--d:0.9s"><b>STACK PREVISTA</b>Python · scikit-learn · Ollama · Streamlit</p>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 5 — MACHINE LEARNING (10%)
+     Fala: "São dois classificadores supervisionados. Um responde 'quão
+     urgente?' e o outro 'sobre o quê?'. Começamos com TF-IDF + Regressão
+     Logística como baseline e avaliamos com F1 e matriz de confusão."
+     =========================================== -->
+<section class="slide" aria-label="Machine learning">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">04 · Machine learning</p>
+    <h2 class="headline reveal" style="--d:0.1s">Duas perguntas, <em>dois classificadores.</em></h2>
+
+    <div class="stamp stamp-weight reveal" style="--d:0.2s">
+      <div class="stamp-inner"><span class="v">10%</span><span class="l">Peso na nota<span>Machine learning</span></span></div>
+    </div>
+
+    <div class="qa">
+      <div class="reveal" style="--d:0.3s">
+        <p class="q">Quão urgente?</p>
+        <div class="row">
+          <span class="rubber md" style="--rot:-6deg; --sd:0.8s">Urgente</span>
+          <span class="rubber md navy" style="--rot:3deg; --sd:0.95s">Normal</span>
+          <span class="rubber md grey" style="--rot:-2deg; --sd:1.1s">Baixa</span>
+        </div>
+      </div>
+      <div class="reveal" style="--d:0.45s">
+        <p class="q">Sobre o quê?</p>
+        <div class="row tags">
+          <span class="tag">Faculdade</span><span class="tag">Trabalho</span><span class="tag">Financeiro</span><span class="tag">Pessoal</span><span class="tag">Promoções</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="facts reveal" style="--d:0.6s">
+      <div><span class="lbl">Modelo</span><p>TF-IDF + Regressão Logística (scikit-learn)</p></div>
+      <div><span class="lbl">Dados</span><p>E-mails reais anonimizados, rotulados pelo grupo</p></div>
+      <div><span class="lbl">Avaliação</span><p>F1-score e matriz de confusão</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 6 — LLM LOCAL (10%)
+     Fala: "O LLM roda na máquina via Ollama, com um modelo aberto. Ele
+     recebe o e-mail já classificado e devolve resumo, ações/prazos e um
+     rascunho de resposta. Local = privacidade, custo zero e offline."
+     =========================================== -->
+<section class="slide" aria-label="LLM local">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">05 · Modelo de linguagem (LLM)</p>
+    <h2 class="headline reveal" style="--d:0.1s">Um LLM aberto, rodando <em>na sua máquina.</em></h2>
+
+    <div class="stamp stamp-weight reveal" style="--d:0.2s">
+      <div class="stamp-inner"><span class="v">10%</span><span class="l">Peso na nota<span>Integração LLM</span></span></div>
+    </div>
+
+    <ul class="tasks">
+      <li class="reveal" style="--d:0.3s"><span class="n">01</span>Resume em até duas linhas</li>
+      <li class="reveal" style="--d:0.4s"><span class="n">02</span>Extrai ações e prazos</li>
+      <li class="reveal" style="--d:0.5s"><span class="n">03</span>Rascunha a resposta</li>
+    </ul>
+
+    <div class="letter why reveal" style="--d:0.6s">
+      <p class="ttl">Por que local?</p>
+      <ul>
+        <li>Nada vai para a nuvem</li>
+        <li>Sem custo de API</li>
+        <li>Funciona offline</li>
+      </ul>
+      <p class="via">Via Ollama · ex.: Llama, Qwen ou Gemma</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 7 — EXEMPLO DE SAÍDA
+     Fala: "É isso que a pessoa vê: o e-mail mais urgente no topo, com
+     resumo, ação e resposta sugerida. O botão é 'revisar e enviar' —
+     o assistente nunca envia sozinho. Depois vem o resto da fila."
+     =========================================== -->
+<section class="slide" aria-label="Exemplo de saída">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">06 · A saída</p>
+    <h2 class="headline reveal" style="--d:0.1s">Sua manhã, <em>já triada.</em></h2>
+
+    <div class="letter mail reveal" style="--d:0.25s">
+      <div class="mail-head"><span class="rubber sm">Urgente</span><span class="tag">Faculdade</span></div>
+      <p class="meta"><b>De:</b> Coordenação do curso<br><b>Assunto:</b> Relatório final — prazo antecipado</p>
+      <div class="field"><span class="lbl">Resumo</span><p>O prazo do relatório mudou para amanhã, 9h. Pedem confirmação de recebimento.</p></div>
+      <div class="field"><span class="lbl">Ação sugerida</span><p>Confirmar hoje e avisar o grupo.</p></div>
+      <div class="field"><span class="lbl">Resposta sugerida</span><p class="reply">“Olá! Confirmo o recebimento. Entregaremos até amanhã, 9h.”</p></div>
+      <div class="btns"><span class="btn primary ed">Revisar e enviar</span><span class="btn ed">Editar</span><span class="btn ed">Ignorar</span></div>
+    </div>
+
+    <div class="queue">
+      <span class="lbl reveal" style="--d:0.35s">Depois disso</span>
+      <div class="letter q-item reveal" style="--d:0.45s">
+        <div class="row"><span class="rubber xs navy">Normal</span><span class="cat ed">Financeiro</span></div>
+        <p class="subj">Fatura vence em 3 dias</p>
+        <p class="act">→ Agendar pagamento</p>
+      </div>
+      <div class="letter q-item reveal" style="--d:0.55s">
+        <div class="row"><span class="rubber xs navy">Normal</span><span class="cat ed">Trabalho</span></div>
+        <p class="subj">Ata da reunião de ontem</p>
+        <p class="act">→ Ler até sexta</p>
+      </div>
+      <div class="letter q-item reveal" style="--d:0.65s">
+        <div class="row"><span class="rubber xs grey">Baixa</span><span class="cat ed">Promoções</span></div>
+        <p class="subj">12 e-mails promocionais</p>
+        <p class="act">→ Arquivar em lote</p>
+      </div>
+    </div>
+
+    <p class="caption reveal" style="--d:0.8s">* exemplo ilustrativo da saída do sistema</p>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 8 — ÉTICA (5%)
+     Fala: "Privacidade é o ponto central: nada sai da máquina. O humano
+     sempre revisa. Mostramos por que o modelo classificou. E assumimos os
+     limites: o modelo erra, o LLM pode alucinar e os rótulos têm viés."
+     =========================================== -->
+<section class="slide" aria-label="Ética e responsabilidade">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">07 · Ética e responsabilidade</p>
+    <h2 class="headline reveal" style="--d:0.1s">Seus e-mails <em>não saem</em> da sua máquina.</h2>
+
+    <div class="stamp stamp-weight reveal" style="--d:0.2s">
+      <div class="stamp-inner"><span class="v">5%</span><span class="l">Peso na nota<span>Ética</span></span></div>
+    </div>
+
+    <div class="ethics">
+      <div class="cell reveal" style="--d:0.3s"><span class="lbl">Privacidade</span><p>Tudo roda localmente, alinhado com a LGPD; dados de treino anonimizados.</p></div>
+      <div class="cell reveal" style="--d:0.4s"><span class="lbl">Humano no controle</span><p>O assistente sugere — nunca envia nada sozinho.</p></div>
+      <div class="cell reveal" style="--d:0.5s"><span class="lbl">Transparência</span><p>Mostra por que classificou: as palavras que mais pesaram.</p></div>
+      <div class="cell reveal" style="--d:0.6s"><span class="lbl">Limites e vieses</span><p>O modelo pode errar, o LLM pode alucinar e os rótulos refletem quem rotulou.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===========================================
+     SLIDE 9 — CRONOGRAMA + ENCERRAMENTO
+     Fala: "Até a defesa em 26/10: dados e classificador, depois LLM,
+     depois interface e testes. Obrigado — perguntas?"
+     =========================================== -->
+<section class="slide" aria-label="Próximos passos">
+  <div class="airmail"></div>
+  <div class="envelope">
+    <header class="chrome"><span class="ed">Assistente de e-mail local — TDE 2</span><span class="pageno"></span></header>
+    <p class="kicker reveal">08 · Próximos passos</p>
+    <h2 class="headline reveal" style="--d:0.1s">Até a defesa, em <em>26 de outubro.</em></h2>
+
+    <div class="tl-line"></div>
+    <div class="stop reveal" style="left:278px; --d:0.3s"><span class="date ed">21/09</span><i class="dot done"></i><p class="what">Proposta</p></div>
+    <div class="stop reveal" style="left:602px; --d:0.4s"><span class="date ed">05/10</span><i class="dot"></i><p class="what">Dados rotulados + classificador</p></div>
+    <div class="stop reveal" style="left:926px; --d:0.5s"><span class="date ed">12/10</span><i class="dot"></i><p class="what">LLM local integrado</p></div>
+    <div class="stop reveal" style="left:1250px; --d:0.6s"><span class="date ed">19/10</span><i class="dot"></i><p class="what">Interface e testes</p></div>
+    <div class="stop reveal" style="left:1574px; --d:0.7s"><span class="date ed">26/10</span><i class="dot goal"></i><p class="what">Defesa e demonstração</p></div>
+
+    <p class="thanks reveal" style="--d:0.9s">Obrigado.</p>
+    <span class="rubber closing-stamp">Perguntas?</span>
+  </div>
+</section>
+
+</main>
+</div>
+
+<script>
+/* ===========================================
+   VERSÃO DO DECK
+   Mude este valor quando o arquivo for regenerado: edições salvas no
+   navegador (localStorage) de uma versão antiga são ignoradas.
+   =========================================== */
+const DECK_VERSION = 'proposta-v1';
+
+/* ===========================================
+   STAMP PERFORATION
+   Desenha o picote de cada .stamp como máscara SVG (idempotente)
+   =========================================== */
+function perforateStamps() {
+    const ns = 'http://www.w3.org/2000/svg';
+    document.querySelectorAll('.stamp').forEach((stamp, n) => {
+        if (stamp.querySelector('svg.perf')) return;
+        const W = stamp.offsetWidth, H = stamp.offsetHeight, r = 8, step = 25;
+        const nx = Math.round(W / step), ny = Math.round(H / step);
+        let holes = '';
+        for (let k = 0; k <= nx; k++) { const x = k * W / nx; holes += `<circle cx="${x}" cy="0" r="${r}"/><circle cx="${x}" cy="${H}" r="${r}"/>`; }
+        for (let k = 0; k <= ny; k++) { const y = k * H / ny; holes += `<circle cx="0" cy="${y}" r="${r}"/><circle cx="${W}" cy="${y}" r="${r}"/>`; }
+        const svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('class', 'perf');
+        svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+        svg.setAttribute('aria-hidden', 'true');
+        svg.innerHTML = `<mask id="perf${n}"><rect width="${W}" height="${H}" fill="#fff"/><g fill="#000">${holes}</g></mask>` +
+                        `<rect width="${W}" height="${H}" fill="#fbf8f2" mask="url(#perf${n})"/>`;
+        stamp.prepend(svg);
+    });
+}
+
+/* ===========================================
+   SLIDE PRESENTATION CONTROLLER
+   Teclado (setas, espaço, PageUp/Down, Home/End), roda do mouse,
+   swipe no celular e #N na URL para abrir um slide específico
+   =========================================== */
+class SlidePresentation {
+    constructor() {
+        this.stage = document.getElementById('deckStage');
+        this.slides = [...document.querySelectorAll('.slide')];
+        this.progress = document.getElementById('deckProgress');
+        this.current = 0;
+        this.lastWheel = 0;
+        this.numberPages();
+        this.setupStageScale();
+        this.setupKeyboardNav();
+        this.setupWheelNav();
+        this.setupTouchNav();
+        const fromHash = parseInt(location.hash.slice(1), 10);
+        // Espera dois frames para que a animação de entrada do 1º slide rode
+        requestAnimationFrame(() => requestAnimationFrame(() =>
+            this.show(Number.isFinite(fromHash) ? fromHash - 1 : 0)));
+    }
+
+    numberPages() {
+        const total = String(this.slides.length).padStart(2, '0');
+        this.slides.forEach((s, i) => s.querySelectorAll('.pageno')
+            .forEach(el => { el.textContent = `Nº ${String(i + 1).padStart(2, '0')} / ${total}`; }));
+    }
+
+    setupStageScale() {
+        const scale = () => {
+            const f = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+            const x = (window.innerWidth - 1920 * f) / 2;
+            const y = (window.innerHeight - 1080 * f) / 2;
+            this.stage.style.transform = `translate(${x}px, ${y}px) scale(${f})`;
+        };
+        scale();
+        window.addEventListener('resize', scale);
+    }
+
+    setupKeyboardNav() {
+        document.addEventListener('keydown', (e) => {
+            if (e.target.isContentEditable) return;
+            if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); this.show(this.current + 1); }
+            else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); this.show(this.current - 1); }
+            else if (e.key === 'Home') this.show(0);
+            else if (e.key === 'End') this.show(this.slides.length - 1);
+        });
+    }
+
+    setupWheelNav() {
+        window.addEventListener('wheel', (e) => {
+            if (document.body.classList.contains('editing')) return;
+            const now = Date.now();
+            if (now - this.lastWheel < 800 || Math.abs(e.deltaY) < 20) return;
+            this.lastWheel = now;
+            this.show(this.current + (e.deltaY > 0 ? 1 : -1));
+        }, { passive: true });
+    }
+
+    setupTouchNav() {
+        let x0 = null, y0 = null;
+        window.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+        window.addEventListener('touchend', (e) => {
+            if (x0 === null || document.body.classList.contains('editing')) return;
+            const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+            if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) this.show(this.current + (dx < 0 ? 1 : -1));
+            x0 = null;
+        }, { passive: true });
+    }
+
+    show(index) {
+        this.current = Math.max(0, Math.min(index, this.slides.length - 1));
+        this.slides.forEach((s, i) => {
+            s.classList.toggle('active', i === this.current);
+            s.classList.toggle('visible', i === this.current);
+        });
+        this.progress.style.width = ((this.current + 1) / this.slides.length * 100) + '%';
+        history.replaceState(null, '', '#' + (this.current + 1));
+    }
+}
+
+/* ===========================================
+   INLINE EDITOR
+   E (ou canto superior esquerdo) liga/desliga a edição.
+   Edições são salvas no navegador; Ctrl+S baixa o HTML atualizado.
+   =========================================== */
+class InlineEditor {
+    constructor() {
+        this.isActive = false;
+        this.key = 'deck:' + location.pathname;
+        this.selector = '.slide :is(h1, h2, p, li, .ed, .rubber, .tag, .lbl)';
+        this.toggleBtn = document.getElementById('editToggle');
+        this.toastEl = document.getElementById('toast');
+        this.setupHover();
+        this.setupKeys();
+        document.getElementById('deckStage').addEventListener('input', () => {
+            clearTimeout(this.saveTimer);
+            this.saveTimer = setTimeout(() => this.save(), 400);
+        });
+    }
+
+    /* Restaura edições salvas (somente da mesma DECK_VERSION) */
+    static restore(key) {
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            const slides = document.querySelectorAll('.slide');
+            if (!data || data.v !== DECK_VERSION || data.slides.length !== slides.length) return;
+            slides.forEach((s, i) => { s.innerHTML = data.slides[i]; });
+        } catch (err) { /* armazenamento indisponível: segue com o original */ }
+    }
+
+    setupHover() {
+        const hotzone = document.querySelector('.edit-hotzone');
+        let hideTimeout = null;
+        const hideLater = () => {
+            hideTimeout = setTimeout(() => { if (!this.isActive) this.toggleBtn.classList.remove('show'); }, 400);
+        };
+        hotzone.addEventListener('mouseenter', () => { clearTimeout(hideTimeout); this.toggleBtn.classList.add('show'); });
+        hotzone.addEventListener('mouseleave', hideLater);
+        this.toggleBtn.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+        this.toggleBtn.addEventListener('mouseleave', hideLater);
+        hotzone.addEventListener('click', () => this.toggle());
+        this.toggleBtn.addEventListener('click', () => this.toggle());
+    }
+
+    setupKeys() {
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); this.exportFile(); return; }
+            if (e.target.isContentEditable) return;
+            if ((e.key === 'e' || e.key === 'E') && !e.ctrlKey && !e.metaKey && !e.altKey) this.toggle();
+        });
+    }
+
+    toggle() {
+        this.isActive = !this.isActive;
+        document.body.classList.toggle('editing', this.isActive);
+        this.toggleBtn.classList.toggle('active', this.isActive);
+        this.toggleBtn.classList.toggle('show', this.isActive);
+        this.toggleBtn.textContent = this.isActive ? '✓ Concluir' : '✎ Editar';
+        document.querySelectorAll(this.selector).forEach(el => {
+            if (this.isActive) el.setAttribute('contenteditable', 'true');
+            else el.removeAttribute('contenteditable');
+        });
+        if (!this.isActive) this.save();
+        this.toast(this.isActive ? 'Modo de edição: clique em qualquer texto' : 'Edições salvas neste navegador');
+    }
+
+    cleanSlideHTML(slide) {
+        const clone = slide.cloneNode(true);
+        clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        return clone.innerHTML;
+    }
+
+    save() {
+        try {
+            const slides = [...document.querySelectorAll('.slide')].map(s => this.cleanSlideHTML(s));
+            localStorage.setItem(this.key, JSON.stringify({ v: DECK_VERSION, slides }));
+        } catch (err) { /* sem armazenamento: edições valem só nesta aba */ }
+    }
+
+    /* Ctrl+S: baixa uma cópia do HTML com as edições */
+    exportFile() {
+        this.save();
+        const doc = document.documentElement.cloneNode(true);
+        doc.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+        doc.querySelectorAll('.slide').forEach(s => s.classList.remove('active', 'visible'));
+        doc.querySelector('body').classList.remove('editing');
+        doc.querySelector('#deckStage').removeAttribute('style');
+        doc.querySelector('#deckProgress').removeAttribute('style');
+        const btn = doc.querySelector('#editToggle');
+        btn.className = 'edit-toggle';
+        btn.textContent = '✎ Editar';
+        doc.querySelector('#toast').className = 'toast';
+        const blob = new Blob(['<!DOCTYPE html>\n' + doc.outerHTML], { type: 'text/html' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = decodeURIComponent(location.pathname.split('/').pop()) || 'apresentacao.html';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+        this.toast('HTML baixado — substitua o arquivo original pela cópia baixada');
+    }
+
+    toast(msg) {
+        this.toastEl.textContent = msg;
+        this.toastEl.classList.add('show');
+        clearTimeout(this.toastTimer);
+        this.toastTimer = setTimeout(() => this.toastEl.classList.remove('show'), 2400);
+    }
+}
+
+/* ===========================================
+   BOOT
+   =========================================== */
+InlineEditor.restore('deck:' + location.pathname);
+perforateStamps();
+new SlidePresentation();
+new InlineEditor();
+</script>
+</body>
+</html>
