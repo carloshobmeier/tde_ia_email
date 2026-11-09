@@ -26,7 +26,7 @@ async def main():
     draft = await llm.draft(message)
     elapsed_draft = time.perf_counter() - start
     print(json.dumps({"task": "draft", "seconds": round(elapsed_draft, 2), "result": draft}, ensure_ascii=False), flush=True)
-    result = {"model": "qwen3:4b", "device": "CPU (num_gpu=0)", "context": 4096,
+    result = {"model": "qwen3:4b", "device": llm.DEVICE, "context": 4096,
               "analysis_seconds": elapsed_analysis, "draft_seconds": elapsed_draft, "analysis": analysis, "draft": draft,
               "note": "Teste na máquina de desenvolvimento. Não é um benchmark do i7-1260P de destino."}
     output = Path(__file__).resolve().parent.parent / "artifacts"

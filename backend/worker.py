@@ -26,10 +26,10 @@ async def execute(job):
         result = await asyncio.to_thread(ml.train)
         # Atualiza apenas previsões automáticas; preserva as escolhas do usuário e os exemplos editoriais.
         def reclassify():
-            for message in rows("SELECT m.id,m.subject,m.body FROM messages m JOIN accounts a ON a.id=m.account_id WHERE m.corrected=0 AND a.demo=0"):
+            for message in rows("SELECT id,subject,body FROM messages WHERE corrected=0 AND editorial=0"):
                 prediction = ml.classify(message["subject"], message["body"])
                 with connect() as db:
-                    db.execute("UPDATE messages SET category=?,priority=?,confidence=?,signals=? WHERE id=? AND corrected=0",
+                    db.execute("UPDATE messages SET category=?,priority=?,confidence=?,signals=? WHERE id=? AND corrected=0 AND editorial=0",
                                (prediction["category"], prediction["priority"], prediction["confidence"], prediction["signals"], message["id"]))
         await asyncio.to_thread(reclassify)
         return result

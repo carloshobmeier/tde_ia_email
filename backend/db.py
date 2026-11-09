@@ -45,6 +45,7 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'pending', snoozed_until TEXT,
             analysis TEXT, analysis_source TEXT, draft TEXT, analyzed_at TEXT,
             source_url TEXT, content_hash TEXT NOT NULL, corrected INTEGER NOT NULL DEFAULT 0,
+            editorial INTEGER NOT NULL DEFAULT 0,
             UNIQUE(account_id,remote_id)
         );
         CREATE INDEX IF NOT EXISTS messages_received ON messages(received_at DESC);
@@ -65,8 +66,17 @@ def init_db():
         );
         CREATE UNIQUE INDEX IF NOT EXISTS jobs_active ON jobs(kind,target)
             WHERE status IN ('queued','running');
+        CREATE TABLE IF NOT EXISTS qev_cache (
+            key TEXT NOT NULL, model TEXT NOT NULL, probs TEXT NOT NULL, created_at TEXT NOT NULL,
+            PRIMARY KEY(key, model)
+        );
         """)
         db.execute("UPDATE jobs SET status='queued' WHERE status='running'")
+        # editorial=1: rótulos e resumo escritos à mão na demonstração; os modelos não os alteram.
+        # Bancos anteriores só tinham mensagens editoriais nas contas de demonstração.
+        if "editorial" not in {row[1] for row in db.execute("PRAGMA table_info(messages)")}:
+            db.execute("ALTER TABLE messages ADD COLUMN editorial INTEGER NOT NULL DEFAULT 0")
+            db.execute("UPDATE messages SET editorial=1 WHERE account_id IN (SELECT id FROM accounts WHERE demo=1)")
 
 
 def get_setting(key, default=None):

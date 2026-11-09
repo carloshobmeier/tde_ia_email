@@ -15,10 +15,12 @@ os.environ["FOCO_DATA_DIR"] = _temp.name
 
 import httpx
 from fastapi.testclient import TestClient
-from backend import db, llm, ml, providers
+import numpy as np
+from backend import corpus, db, llm, ml, providers, qev, refiner
 from backend.main import app, SESSION_TOKEN, serialize
 from backend.mail import parse_eml, html_to_text, store_message
 from backend.worker import enqueue, execute
+from scripts import runtime
 
 EML = b"From: Ana <ana@example.com>\r\nTo: user@example.com\r\nSubject: Revisar proposta\r\nDate: Fri, 25 Sep 2026 10:00:00 -0300\r\nMessage-ID: <one@example.com>\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nPor favor revise a proposta hoje ate as 17h."
 
@@ -27,11 +29,31 @@ async def idle_worker(stop):
     await stop.wait()
 
 
+def one_hot(labels, label, p=0.8):
+    rest = (1 - p) / (len(labels) - 1)
+    return [p if item == label else rest for item in labels]
+
+
+TRUTH = {s["text"]: s for s in corpus.bootstrap_samples()}
+
+
+def fake_qev(text):
+    """Qev imperfeito e determinístico: acerta ~2/3 do corpus; mensagens reais viram financeiro/baixa."""
+    sample = TRUTH.get(text)
+    if sample is None:
+        return {"category": one_hot(ml.CATEGORIES, "financeiro"), "priority": one_hot(ml.PRIORITIES, "baixa")}
+    right = int(hashlib.sha256(text.encode()).hexdigest(), 16) % 3 != 0
+    return {"category": one_hot(ml.CATEGORIES, sample["category"] if right else "promocoes"),
+            "priority": one_hot(ml.PRIORITIES, sample["priority"] if right else "normal")}
+
+
 class AppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.worker_patch = patch("backend.main.run_worker", idle_worker)
         cls.worker_patch.start()
+        cls.refiner_patch = patch("backend.main.run_refiner", idle_worker)
+        cls.refiner_patch.start()
         cls.client = TestClient(app)
         cls.client.__enter__()
         cls.client.headers["X-Foco-Token"] = SESSION_TOKEN
@@ -40,6 +62,7 @@ class AppTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.client.__exit__(None, None, None)
         cls.worker_patch.stop()
+        cls.refiner_patch.stop()
 
     def setUp(self):
         with db.connect() as conn:
@@ -66,11 +89,27 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/stats").json()["total"], 0)
         self.assertEqual(self.client.post("/api/demo").status_code, 200)
         count = self.client.get("/api/stats").json()["total"]
-        self.assertEqual(count, 12)
+        self.assertEqual(count, 24)
         self.client.post("/api/demo")
         self.assertEqual(self.client.get("/api/stats").json()["total"], count)
         self.assertEqual(len(self.client.get("/api/accounts").json()), 3)
-        self.assertTrue(all(m["analysis_source"] == "demo" for m in self.client.get("/api/messages").json()["items"]))
+        messages = db.rows("SELECT editorial,analysis_source,remote_id FROM messages")
+        editorial = [m for m in messages if m["editorial"]]
+        live = [m for m in messages if not m["editorial"]]
+        self.assertEqual((len(editorial), len(live)), (18, 6))
+        self.assertTrue(all(m["analysis_source"] == "demo" for m in editorial))
+        self.assertTrue(all(m["analysis_source"] is None and m["remote_id"].startswith("demo-live-") for m in live))
+
+    def test_retraining_relabels_live_demo_but_never_editorial(self):
+        self.client.post("/api/demo")
+        with db.connect() as conn:
+            conn.execute("UPDATE messages SET category='promocoes',priority='baixa'")  # rótulos "errados" de propósito
+        job = enqueue("train", "classifier")
+        asyncio.run(execute(db.rows("SELECT * FROM jobs WHERE id=?", (job["id"],))[0]))
+        editorial = db.rows("SELECT category FROM messages WHERE editorial=1")
+        live = db.rows("SELECT subject,category FROM messages WHERE editorial=0")
+        self.assertTrue(all(m["category"] == "promocoes" for m in editorial), "editoriais nunca são reclassificados")
+        self.assertNotEqual({m["category"] for m in live}, {"promocoes"}, "ao vivo são reclassificados pelos modelos")
 
     def test_import_idempotency_and_utf8(self):
         message = self.import_one()
@@ -146,13 +185,73 @@ class AppTests(unittest.TestCase):
     def test_ml_report_and_fixed_partitions(self):
         report = self.client.get("/api/ml/report").json()
         self.assertEqual(report["evaluation_scope"], "synthetic")
-        self.assertEqual(sum(report["splits"].values()), 180)
+        self.assertEqual(sum(report["splits"].values()), len(corpus.bootstrap_samples()))
         self.assertEqual(len(report["comparisons"]), 8)
         self.assertEqual(ml.partition("same-thread"), ml.partition("same-thread"))
         examples = db.rows("SELECT group_id FROM samples")
         partitions = {name: {s["group_id"] for s in examples if ml.partition(s["group_id"]) == name} for name in ['train', 'validation', 'test']}
         self.assertFalse(partitions['train'] & partitions['test'])
         self.assertFalse(partitions['validation'] & partitions['test'])
+        # Piso de regressão: bem acima da classe majoritária, sem exigir perfeição de um corpus sintético.
+        for task in ("category", "priority"):
+            self.assertGreater(report["results"][task]["report"]["macro avg"]["f1-score"], 0.7, task)
+
+    def test_outdated_corpus_is_replaced(self):
+        with db.connect() as conn:
+            conn.execute("INSERT INTO samples VALUES ('old','texto antigo','trabalho','normal','bootstrap:old:0','synthetic')")
+        with patch.object(ml, "_model", {"corpus": corpus.CORPUS_VERSION - 1}):
+            self.assertFalse(ml.is_current())
+        ml.train()
+        self.assertTrue(ml.is_current())
+        self.assertFalse(db.rows("SELECT id FROM samples WHERE id='old'"))
+
+    def test_classification_explains_with_words(self):
+        result = ml.classify("Prova antecipada", "A prova da disciplina foi antecipada para amanhã às 8h. Confirme hoje, é urgente.")
+        signals = json.loads(result["signals"])
+        self.assertEqual(result["priority"], "urgente")
+        self.assertTrue(signals, "o indício da prioridade deve aparecer com qualquer modelo selecionado")
+        self.assertFalse([s for s in signals if s.startswith(("char__", "word__"))])
+
+    def test_qev_combination_end_to_end(self):
+        other = EML.replace(b"Revisar proposta", b"Outra mensagem").replace(b"<one@", b"<two@")
+        response = self.client.post("/api/import/eml", files=[("files", ("a.eml", EML)), ("files", ("b.eml", other))])
+        self.assertEqual(response.json()["imported"], 2)
+        items = {m["subject"]: m for m in self.client.get("/api/messages").json()["items"]}
+        plain, corrected = items["Revisar proposta"], items["Outra mensagem"]
+        self.client.patch("/api/messages/" + corrected["id"], json={"category": "pessoal", "priority": "urgente"})
+        with patch.object(qev, "installed", return_value=True), patch.object(qev, "online", return_value=True), \
+                patch.object(qev, "predict", side_effect=fake_qev):
+            try:
+                for _ in range(200):  # preenche a validação/teste em lotes até agendar o retreino
+                    if refiner.step():
+                        break
+                status = self.client.get("/api/ml/report").json()["qev_live"]
+                self.assertEqual(status["cached"], status["total"])
+                job = db.rows("SELECT * FROM jobs WHERE kind='train' AND status='queued'")[0]
+                asyncio.run(execute(job))
+                report = self.client.get("/api/ml/report").json()
+                self.assertTrue(report["qev"]["used"])
+                self.assertTrue(report["qev_live"]["used"])
+                for task in ("category", "priority"):
+                    names = [c["model"] for c in report["comparisons"] if c["task"] == task]
+                    self.assertIn(ml.QEV_NAME, names)
+                    self.assertIn(ml.ENSEMBLE_NAME, names)
+                    self.assertIn(report["results"][task]["model"], names, "o modelo selecionado precisa aparecer na comparação")
+                # Combinação "só Qev" torna o efeito do refinador previsível.
+                ml.get_model()["ensemble"] = {"category": {"method": "qev"}, "priority": {"method": "qev"}}
+                qev.new_messages.set()
+                refiner.step()
+                refined = self.client.get("/api/messages/" + plain["id"]).json()
+                self.assertEqual((refined["category"], refined["priority"]), ("financeiro", "baixa"))
+                kept = self.client.get("/api/messages/" + corrected["id"]).json()
+                self.assertEqual((kept["category"], kept["priority"]), ("pessoal", "urgente"))
+                self.assertEqual(ml.classify(plain["subject"], refined["body"])["classifier"], ml.ENSEMBLE_NAME)
+                self.assertEqual(ml.classify("Nunca visto", "Texto sem resposta do Qev.")["classifier"], "TF-IDF")
+            finally:
+                with db.connect() as conn:
+                    conn.execute("DELETE FROM qev_cache")
+                ml.train()
+        self.assertFalse(ml.get_model().get("ensemble"))
 
     def test_bad_csv_is_atomic(self):
         before = len(db.rows("SELECT * FROM samples"))
@@ -172,6 +271,87 @@ class AppTests(unittest.TestCase):
 
     def test_cloud_models_rejected(self):
         self.assertEqual(self.client.put("/api/settings", json={"model": "example:cloud"}).status_code, 422)
+
+
+class CorpusTests(unittest.TestCase):
+    def setUp(self):
+        self.samples = corpus.bootstrap_samples()
+        self.by_split = {p: [s for s in self.samples if corpus.partition(s["group_id"]) == p] for p in ("train", "validation", "test")}
+
+    def test_every_class_in_every_split(self):
+        for split, samples in self.by_split.items():
+            self.assertEqual({s["category"] for s in samples}, set(corpus.TOPICS), split)
+            self.assertEqual({s["priority"] for s in samples}, {"urgente", "normal", "baixa"}, split)
+
+    def test_evaluation_phrases_never_seen_in_training(self):
+        # Sem isso, o teste mede memorização de templates (o problema da versão 1, com prioridade = 1,0).
+        pools = [*corpus.CONTEXT.values(), *corpus.SENDERS.values(), corpus.NO_ACTION, *corpus.PROMO.values()]
+        train_text = "\n".join(s["text"] for s in self.by_split["train"])
+        held_out_text = "\n".join(s["text"] for s in self.by_split["validation"] + self.by_split["test"])
+        for seen, held_out in pools:
+            for phrase in held_out:
+                self.assertFalse(phrase in train_text, f"frase de avaliação no treino: {phrase}")
+            for phrase in seen:
+                self.assertFalse(phrase in held_out_text, f"frase de treino na avaliação: {phrase}")
+
+    def test_corpus_is_deterministic(self):
+        self.assertEqual([s["id"] for s in self.samples], [s["id"] for s in corpus.bootstrap_samples()])
+
+
+class QevTests(unittest.TestCase):
+    LABELS = ["a", "b"]
+    Y = ["a", "a", "b", "b"]
+    TFIDF = np.array([[.9, .1], [.6, .4], [.6, .4], [.1, .9]])  # erra o terceiro
+    QEV = np.array([[.4, .6], [.9, .1], [.1, .9], [.2, .8]])    # erra o primeiro
+
+    def test_combination_chosen_when_it_beats_both_models(self):
+        (params, score), candidates = ml.select_combination(self.LABELS, self.TFIDF, self.QEV, self.Y)
+        self.assertIn(params["method"], ("media", "log-linear"))
+        self.assertEqual(score, 1.0)
+        self.assertLess(max(candidates[0][1], candidates[1][1]), 1.0)
+
+    def test_simplest_model_wins_ties(self):
+        perfect = np.array([[.9, .1], [.8, .2], [.2, .8], [.1, .9]])
+        (params, _), _ = ml.select_combination(self.LABELS, perfect, self.QEV, self.Y)
+        self.assertEqual(params, {"method": "tfidf"})
+
+    def test_combinations_are_probabilities(self):
+        for method in ("media", "log-linear"):
+            combined = ml.combine({"method": method, "alpha": .3}, self.TFIDF, self.QEV)
+            np.testing.assert_allclose(combined.sum(axis=1), 1.0)
+
+    def test_qev_must_be_local(self):
+        with patch.object(qev, "QEV_URL", "http://192.168.0.5:11436"):
+            with self.assertRaises(qev.QevError):
+                qev.base_url()
+            self.assertFalse(qev.online())
+
+    def test_qev_answers_are_validated(self):
+        def server(probabilities):
+            body = {"answers": {"category": {"probabilities": dict(zip(ml.CATEGORIES, probabilities["category"]))},
+                                "priority": {"probabilities": dict(zip(ml.PRIORITIES, probabilities["priority"]))}}}
+            transport, real_client = httpx.MockTransport(lambda request: httpx.Response(200, json=body)), httpx.Client
+            return lambda **kwargs: real_client(transport=transport)
+        good = {"category": [.1, .6, .1, .1, .1], "priority": [.2, .5, .3]}
+        with patch.object(qev.httpx, "Client", server(good)):
+            self.assertEqual(qev.predict("texto"), good)
+        with patch.object(qev.httpx, "Client", server({**good, "priority": [.9, .9, .9]})):
+            with self.assertRaises(qev.QevError):
+                qev.predict("texto")
+
+    def test_qev_server_never_records_requests(self):
+        # Por padrão o `qev serve` grava cada requisição em disco; com e-mails, isso vazaria conteúdo.
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            python = base / "runtime" / (".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
+            python.parent.mkdir(parents=True)
+            python.touch()
+            (base / "models" / "qev-0.8b").mkdir(parents=True)
+            (base / "models" / "qev-0.8b" / "qev_config.json").write_text("{}")
+            with patch.object(runtime, "QEV_DIR", base):
+                command = runtime.qev_command()
+        self.assertIn("--no-request-log", command)
+        self.assertEqual(command[command.index("--host") + 1], "127.0.0.1")
 
 
 class ParsingAndAITests(unittest.TestCase):
@@ -204,6 +384,48 @@ class ParsingAndAITests(unittest.TestCase):
             parsed = asyncio.run(llm.analyze({"subject": "Pedido", "body": "Envie amanhã às 10h."}))
         self.assertIsNotNone(parsed["due_at"])
         self.assertFalse(parsed["due_confirmed"])
+
+    def analyze_with(self, result, message):
+        with patch("backend.llm.generate", AsyncMock(return_value=result)):
+            return asyncio.run(llm.analyze(message))
+
+    def test_credential_request_never_becomes_an_action(self):
+        result = llm.Analysis(summary="Pede a senha.", action="enviar a senha", due_at="2026-09-25T23:59:00-03:00",
+                              due_evidence="responda com a sua senha")
+        parsed = self.analyze_with(result, {"subject": "Conta", "body": "Para evitar o bloqueio, responda com a sua senha.",
+                                            "received_at": "2026-09-25T10:00:00-03:00"})
+        self.assertIsNone(parsed["action"])
+        self.assertIsNone(parsed["due_at"])
+        self.assertEqual(parsed["key_points"][0], llm.CREDENTIAL_WARNING)
+
+    def test_null_written_as_text_is_no_action(self):
+        # Caso real: action="null" (texto) manteria um "prazo" cuja evidência diz que não há prazo.
+        result = llm.Analysis(summary="Informe.", action="null", due_at="2026-09-25T23:59:00-03:00",
+                              due_evidence="não há prazo de entrega")
+        parsed = self.analyze_with(result, {"subject": "Materiais", "body": "Nenhuma resposta e não há prazo de entrega.",
+                                            "received_at": "2026-09-25T10:00:00-03:00"})
+        self.assertIsNone(parsed["action"])
+        self.assertIsNone(parsed["due_at"])
+
+    def test_payment_with_barcode_is_not_flagged(self):
+        result = llm.Analysis(summary="Boleto.", action="pagar o boleto com o código de barras")
+        self.assertEqual(self.analyze_with(result, {"subject": "Boleto", "body": "Use o código de barras."})["action"],
+                         "pagar o boleto com o código de barras")
+
+    def test_implausible_deadline_year_dropped(self):
+        result = llm.Analysis(summary="Revisar", action="Revisar", due_at="2100-09-26T17:00:00-03:00", due_evidence="amanhã às 17h")
+        parsed = self.analyze_with(result, {"subject": "Pedido", "body": "Envie amanhã às 17h.",
+                                            "received_at": "2026-09-25T10:00:00-03:00"})
+        self.assertIsNone(parsed["due_at"])
+        self.assertTrue(parsed["needs_review"])
+
+    def test_promotion_creates_no_obligation(self):
+        result = llm.Analysis(summary="Oferta.", action="aproveitar o desconto", due_at="2026-09-25T23:59:00-03:00",
+                              due_evidence="até a meia-noite")
+        parsed = self.analyze_with(result, {"subject": "Só hoje", "body": "Desconto até a meia-noite.",
+                                            "category": "promocoes", "received_at": "2026-09-25T10:00:00-03:00"})
+        self.assertIsNone(parsed["action"])
+        self.assertIsNone(parsed["due_at"])
 
     def test_ollama_cannot_be_remote(self):
         with patch("backend.llm.OLLAMA_URL", "https://external.example"):

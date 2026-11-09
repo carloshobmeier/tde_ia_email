@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Check, CheckCircle2, ChevronRight, CircleHelp, Cpu, Database, Download, ExternalLink, FileUp, FlaskConical, KeyRound, Link2, Mail, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, WifiOff } from 'lucide-react';
-import { api, post, categoryNames, dateLabel } from './api';
+import { api, post, categoryNames, dateLabel, launcher } from './api';
 import { EmptyState, Modal, ProviderIcon, Spinner } from './components';
 import type { Account, Health, Report, Settings } from './types';
 
@@ -36,17 +36,56 @@ export function SettingsPage({ initial, health, onSaved, onHealth, notify }: { i
   }
   return <div className="page-content settings-page"><div className="page-heading"><div><div className="eyebrow">DO SEU JEITO</div><h1>Um espaço seu<span className="serif-dot">.</span></h1><p>Controle suas conexões, sua experiência e sua inteligência local.</p></div><button className="button primary" disabled={saving} onClick={save}>{saving ? <Spinner label="Salvando" /> : <><Check size={16} />Salvar alterações</>}</button></div>
     <section className="settings-section"><div className="settings-intro"><span className="settings-icon"><Sparkles size={22} /></span><h2>Um toque pessoal</h2><p>Como você quer ser recebido por aqui?</p></div><div className="settings-fields"><label>Seu nome<input value={form.display_name} onChange={e => setForm({ ...form, display_name: e.target.value })} placeholder="Como podemos chamar você?" maxLength={60} /></label><p className="field-help">Salvo apenas neste computador.</p></div></section>
-    <section className="settings-section"><div className="settings-intro"><span className="settings-icon"><Cpu size={22} /></span><h2>Inteligência local</h2><p>Uma tarefa por vez, com espaço para o restante do seu dia.</p><span className={`status-label ${health?.ready ? '' : 'warning'}`}><i />{health?.ready ? 'Modelo pronto para usar' : health?.online ? 'Escolha um modelo instalado' : 'Ollama não está conectado'}</span></div><div className="settings-fields"><label>Modelo do Ollama<input list="local-models" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="qwen3:4b" /><datalist id="local-models">{health?.models.map(model => <option value={model} key={model} />)}</datalist></label><p className="field-help">Perfil inicial para i7-1260P e 16 GB: Qwen3 4B, contexto de 4.096 tokens e uma geração por vez. A velocidade depende da memória livre.</p><div className="terminal-card"><span>Primeiro uso · na pasta do projeto</span><code>preparar_ia.bat</code><span>Depois, inicie o aplicativo pelo iniciar.bat.</span></div><button className="text-button" onClick={onHealth}><RefreshCw size={14} />Verificar conexão</button>{health?.last_run && <div className="inference-note">Última geração: {health.last_run.duration_s.toFixed(1)} s · {health.last_run.tokens} tokens · {health.last_run.model}</div>}</div></section>
+    <section className="settings-section"><div className="settings-intro"><span className="settings-icon"><Cpu size={22} /></span><h2>Inteligência local</h2><p>Uma tarefa por vez, com espaço para o restante do seu dia.</p><span className={`status-label ${health?.ready ? '' : 'warning'}`}><i />{health?.ready ? 'Modelo pronto para usar' : health?.online ? 'Escolha um modelo instalado' : 'Ollama não está conectado'}</span></div><div className="settings-fields"><label>Modelo do Ollama<input list="local-models" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="qwen3:4b" /><datalist id="local-models">{health?.models.map(model => <option value={model} key={model} />)}</datalist></label><p className="field-help">Perfil inicial para i7-1260P e 16 GB: Qwen3 4B, contexto de 4.096 tokens e uma geração por vez. A velocidade depende da memória livre.</p><div className="terminal-card"><span>Primeiro uso · na pasta do projeto</span><code>{launcher('preparar_ia')}</code><span>Depois, inicie o aplicativo pelo {launcher('iniciar')}.</span></div><button className="text-button" onClick={onHealth}><RefreshCw size={14} />Verificar conexão</button>{health?.last_run && <div className="inference-note">Última geração: {health.last_run.duration_s.toFixed(1)} s · {health.last_run.tokens} tokens · {health.last_run.model}</div>}</div></section>
     <section className="settings-section"><div className="settings-intro"><span className="settings-icon"><Link2 size={22} /></span><h2>Conexões de e-mail</h2><p>Os provedores exigem o cadastro de um aplicativo para autorizar a leitura.</p><button className="text-button" onClick={() => setHelp(true)}>Como configurar <ArrowRight size={14} /></button></div><div className="settings-fields"><label>ID do cliente Google<input value={form.gmail_client_id} onChange={e => setForm({ ...form, gmail_client_id: e.target.value })} placeholder="…apps.googleusercontent.com" autoComplete="off" /></label><label>Client secret do aplicativo Google<input type="password" value={secret} onChange={e => setSecret(e.target.value)} placeholder="Deixe vazio para manter o valor salvo" autoComplete="new-password" /></label><p className="field-help">O segredo e os tokens ficam no cofre de credenciais do sistema.</p><label>ID do aplicativo Microsoft<input value={form.outlook_client_id} onChange={e => setForm({ ...form, outlook_client_id: e.target.value })} placeholder="ID do aplicativo registrado no Microsoft Entra" autoComplete="off" /></label><label>Período da primeira sincronização<select value={form.sync_days} onChange={e => setForm({ ...form, sync_days: Number(e.target.value) })}><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option><option value={90}>Últimos 90 dias</option><option value={365}>Último ano</option></select></label><p className="field-help">Aplica-se à caixa de entrada de novas conexões. Depois disso, apenas as mudanças são buscadas. Use “Sincronizar” para buscar novas mensagens.</p></div></section>
     <div className="privacy-strip"><ShieldCheck size={24} /><div><h3>Local por princípio.</h3><p>Sem envio automático, imagens remotas ou serviços externos de IA. O banco de mensagens fica na pasta .local-data; proteja o acesso ao seu computador e aos backups.</p></div></div>
     {help && <Modal title="Conecte uma vez. Organize todos os dias." description="O cadastro identifica seu aplicativo perante o provedor. Não é necessário hospedar o Foco na internet." onClose={() => setHelp(false)}><div className="setup-guide"><h3><ProviderIcon provider="gmail" />Gmail</h3><ol><li>Ative a Gmail API no Google Cloud e configure a tela de consentimento.</li><li>Crie uma credencial OAuth do tipo <strong>Aplicativo para computador</strong>.</li><li>Cadastre seu endereço entre os usuários de teste, quando o app estiver em teste.</li><li>Copie o client ID e o client secret para os campos do Foco. Salve e conecte sua conta.</li></ol><a href="https://developers.google.com/workspace/gmail/api/quickstart/python" target="_blank" rel="noreferrer">Guia oficial do Google <ExternalLink size={13} /></a><h3><ProviderIcon provider="outlook" />Outlook / Microsoft 365</h3><ol><li>Registre um aplicativo no Microsoft Entra com suporte aos tipos de conta desejados.</li><li>Na plataforma de aplicativo móvel/desktop, cadastre o redirecionamento <code>http://localhost:8765/auth/outlook/callback</code>.</li><li>Adicione permissões delegadas <strong>User.Read</strong> e <strong>Mail.Read</strong>.</li><li>Copie o ID do aplicativo, salve e conecte. Contas institucionais podem exigir consentimento do administrador.</li></ol><a href="https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app" target="_blank" rel="noreferrer">Guia oficial da Microsoft <ExternalLink size={13} /></a></div></Modal>}
   </div>;
 }
 
+const COMBINATION_NAMES: Record<string, string> = { media: 'média ponderada', 'log-linear': 'log-linear', qev: 'só Qev', tfidf: 'só TF-IDF' };
+
+function describeCombination(report: Report, task: string, label: string) {
+  const combination = report.results[task]?.combination;
+  if (!combination) return `${label}: só TF-IDF (melhor na validação)`;
+  const weight = combination.alpha === undefined ? '' : `, ${Math.round(combination.alpha * 100)}% ${combination.tfidf_model}`;
+  return `${label}: ${COMBINATION_NAMES[combination.method] ?? combination.method}${weight}`;
+}
+
+function QevStatus({ report }: { report: Report }) {
+  const live = report.qev_live;
+  if (!live) return null;
+  let title: string, text: string;
+  if (!live.installed) {
+    title = 'Qev opcional não instalado';
+    text = `Com ele, a classificação combina o TF-IDF a um modelo neural local de decisão, que não gera texto. Para instalar (cerca de 3 GB), use ${launcher('preparar_qev')}.`;
+  } else if (live.used) {
+    title = live.online ? 'Classificação combinada: TF-IDF + Qev' : 'Qev desligado: novas mensagens usam só o TF-IDF';
+    text = `Combinação escolhida na validação. ${describeCombination(report, 'category', 'Categoria')}. ${describeCombination(report, 'priority', 'Prioridade')}.`;
+  } else if (!live.online) {
+    title = 'Qev instalado, carregando';
+    text = 'O serviço local inicia junto com o Foco. Enquanto isso, o TF-IDF classifica sozinho.';
+  } else if (live.cached < live.total) {
+    title = `Qev avaliando: ${live.cached} de ${live.total} exemplos`;
+    text = 'Quando terminar, os modelos são retreinados e a combinação é escolhida na validação, sem usar o teste.';
+  } else {
+    title = 'Qev pronto, retreinando';
+    text = 'A combinação dos dois modelos será escolhida na validação em instantes.';
+  }
+  return <div className="evaluation-notice qev-status"><Sparkles size={21} /><div><strong>{title}</strong><p>{text}</p></div></div>;
+}
+
 export function InsightsPage({ notify, onChange, revision }: { notify: Notify; onChange: () => void; revision: number }) {
   const [report, setReport] = useState<Report | null>(null), [task, setTask] = useState('category'), [error, setError] = useState('');
   const file = useRef<HTMLInputElement>(null);
   useEffect(() => { api<Report>('/ml/report').then(setReport).catch(e => setError(e.message)); }, [revision]);
+  // Enquanto o Qev calcula a avaliação ou carrega, o progresso se atualiza sozinho.
+  const qevWorking = !!report?.qev_live?.installed && !report.qev_live.used;
+  useEffect(() => {
+    if (!qevWorking) return;
+    const timer = window.setInterval(() => { api<Report>('/ml/report').then(setReport).catch(() => undefined); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [qevWorking]);
   async function importCsv(event: React.ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0]; if (!selected) return;
     const data = new FormData(); data.append('file', selected);
@@ -58,7 +97,8 @@ export function InsightsPage({ notify, onChange, revision }: { notify: Notify; o
   const result = report.results[task], average = result.report['macro avg'];
   const max = Math.max(...result.confusion.flat(), 1);
   return <div className="page-content"><div className="page-heading"><div><div className="eyebrow">INTELIGÊNCIA COM TRANSPARÊNCIA</div><h1>Por trás do foco<span className="serif-dot">.</span></h1><p>Modelos, dados e resultados. Tudo aberto à sua avaliação.</p></div><button className="button secondary" onClick={exportReport}><Download size={16} />Exportar avaliação</button></div>
-    <div className="evaluation-notice"><FlaskConical size={21} /><div><strong>{report.evaluation_scope === 'synthetic' ? 'Avaliação inicial com dados sintéticos' : 'Avaliação com dados sintéticos e importados'}</strong><p>Os números abaixo descrevem este corpus. Para medir a qualidade no seu contexto, importe e-mails rotulados e preserve as conversas em um mesmo grupo.</p></div></div>
+    <div className="evaluation-notice"><FlaskConical size={21} /><div><strong>{report.evaluation_scope === 'synthetic' ? 'Avaliação inicial com dados sintéticos' : 'Avaliação com dados sintéticos e importados'}</strong><p>Os números abaixo descrevem este corpus; validação e teste usam frases que o treino nunca viu. Para medir a qualidade no seu contexto, importe e-mails rotulados e preserve as conversas em um mesmo grupo.</p></div></div>
+    <QevStatus report={report} />
     <div className="metric-grid evaluation-metrics"><article className="metric"><span>Exemplos no corpus</span><strong>{report.synthetic + report.imported}</strong><small>{report.synthetic} sintéticos · {report.imported} importados</small></article><article className="metric"><span>Correções registradas</span><strong>{report.feedback_count}</strong><small>{report.feedback_used} utilizadas no último treino</small></article><article className="metric"><span>Treino / validação / teste</span><strong className="split-numbers">{report.splits.train}<i>/</i>{report.splits.validation}<i>/</i>{report.splits.test}</strong><small>Separação fixa por grupo</small></article></div>
     <div className="insights-toolbar"><div className="segmented"><button className={task === 'category' ? 'active' : ''} onClick={() => setTask('category')}>Categorias</button><button className={task === 'priority' ? 'active' : ''} onClick={() => setTask('priority')}>Prioridades</button></div><span>Modelo selecionado: <strong>{result.model}</strong></span></div>
     <div className="insights-grid"><section className="surface insight-card"><div className="section-heading"><h2>Matriz de confusão</h2><span>Conjunto de teste</span></div><p className="field-help">Linhas: classe real. Colunas: classe prevista.</p><div className="matrix-scroll"><table className="confusion-matrix"><thead><tr><th aria-label="Real por previsto" />{result.labels.map(label => <th key={label}>{categoryNames[label] || label}</th>)}</tr></thead><tbody>{result.confusion.map((row, i) => <tr key={i}><th>{categoryNames[result.labels[i]] || result.labels[i]}</th>{row.map((value, j) => <td key={j} style={{ background: `rgba(49, 108, 88, ${0.035 + value / max * .6})`, color: value / max > .5 ? '#fff' : 'var(--text)' }}>{value}</td>)}</tr>)}</tbody></table></div><div className="matrix-legend"><span>Menos exemplos</span><div /><span>Mais exemplos</span></div></section><section className="surface insight-card"><h2>Qualidade no teste</h2><div className="score-hero"><strong>{(average['f1-score'] * 100).toFixed(1)}<span>%</span></strong><div>Macro-F1<p>Média que dá o mesmo peso a cada classe.</p></div></div><div className="score-bars">{result.labels.map(label => <div key={label}><div><span>{categoryNames[label] || label}</span><strong>{(result.report[label]['f1-score'] * 100).toFixed(0)}%</strong></div><div className="bar-track"><i style={{ width: `${result.report[label]['f1-score'] * 100}%` }} /></div><small>Precisão {(result.report[label].precision * 100).toFixed(0)}% · Recall {(result.report[label].recall * 100).toFixed(0)}% · {result.report[label].support} exemplos</small></div>)}</div></section></div>

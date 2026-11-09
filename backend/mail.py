@@ -6,6 +6,7 @@ from email import policy
 from email.parser import BytesParser
 from email.utils import parseaddr, parsedate_to_datetime
 from html.parser import HTMLParser
+from . import qev
 from .db import connect, now
 from .ml import classify
 
@@ -86,4 +87,5 @@ def store_message(account_id, message):
                 received_at,category,priority,confidence,signals,unread,source_url,content_hash)
                 VALUES (:id,:account_id,:remote_id,:thread_id,:sender,:sender_email,:subject,:body,
                 :received_at,:category,:priority,:confidence,:signals,:unread,:source_url,:content_hash)""", values)
+    qev.new_messages.set()  # TF-IDF agora; o refinador combina com o Qev em segundo plano
     return message_id, True

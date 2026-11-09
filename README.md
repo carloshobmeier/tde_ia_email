@@ -2,11 +2,11 @@
 
 **Seu e-mail, com espaço para o que importa.**
 
-Assistente pessoal de e-mail com múltiplas contas, classificação supervisionada e modelo de linguagem local. Desenvolvido para Windows e para um perfil de **Intel i7-1260P, 16 GB de RAM, sem GPU dedicada**.
+Assistente pessoal de e-mail com múltiplas contas, classificação supervisionada e modelo de linguagem local. Desenvolvido para um perfil de **Intel i7-1260P, 16 GB de RAM, sem GPU dedicada**, no Windows; também roda no **macOS** (validado em Apple Silicon).
 
 ## Abrir neste computador
 
-Execute **`iniciar.bat`**. A interface abre em **http://127.0.0.1:8765**.
+Execute **`iniciar.bat`** no Windows ou **`iniciar.command`** no macOS. A interface abre em **http://127.0.0.1:8765**.
 
 O iniciador usa o ambiente virtual do projeto, inicia seu próprio Ollama local na porta 11435 quando necessário e abre o navegador. Fechar o terminal encerra o aplicativo. O modelo fica em `.local-data/ollama-models`; não é preciso baixá-lo a cada execução.
 
@@ -23,7 +23,36 @@ Pré-requisitos: Python **3.11+** (3.12 recomendado), Node.js **22+** com npm e 
 
 Instalação e download precisam de internet. Depois disso, leitura das mensagens armazenadas, ML e geração de texto funcionam localmente. A sincronização com Gmail/Outlook continua precisando de internet.
 
-O instalador usa `requirements-lock.txt` no ambiente Windows/Python 3.12 validado. Outros ambientes usam as dependências diretas de `requirements.txt`; eles não receberam a mesma validação de execução desta entrega.
+O instalador usa `requirements-lock.txt` com Python 3.12 (validado no Windows e no macOS). Outras versões usam as dependências diretas de `requirements.txt`; elas não receberam a mesma validação de execução desta entrega.
+
+### macOS
+
+Pré-requisitos, via [Homebrew](https://brew.sh):
+
+```bash
+brew install python@3.12 node ollama
+```
+
+O Ollama também pode vir do [aplicativo oficial](https://ollama.com/download/mac). Os passos são os mesmos, com os arquivos `.command`. Clique duas vezes no Finder ou rode no Terminal, na pasta do projeto:
+
+```bash
+./instalar.command
+```
+
+```bash
+./preparar_ia.command
+```
+
+```bash
+./iniciar.command
+```
+
+- O instalador escolhe Python 3.12 quando disponível (depois 3.13, 3.11).
+- Em Apple Silicon (M1 ou mais novo), o Qwen3 usa a GPU via Metal; em Intel, roda em CPU como no Windows.
+- Tokens OAuth e o client secret ficam no **Chaves (Keychain)** do macOS. Na primeira leitura o sistema pode pedir permissão.
+- Se o macOS bloquear o `.command` por ter vindo da internet, clique com o botão direito → **Abrir**. Se ele abrir sem permissão de execução, rode `chmod +x *.command` uma vez.
+- Uma pasta copiada do Windows funciona: o instalador recria o `.venv`. Os dados em `.local-data` são compatíveis.
+- Um Ollama que já esteja rodando na porta padrão 11434 não é afetado; o Foco usa sua própria instância na 11435.
 
 ## O que já funciona
 
@@ -106,9 +135,9 @@ O corpo original permanece disponível. A versão atual analisa cada mensagem in
 
 ## Dados, treinamento e apresentação
 
-O primeiro treino usa **180 exemplos sintéticos**, organizados em 60 grupos de cenários. Esses exemplos permitem executar o pipeline desde o primeiro uso; **não comprovam qualidade em e-mails pessoais reais**. As 12 mensagens demonstrativas e seus resumos editoriais também são fictícios e têm essa origem indicada na interface.
+O primeiro treino usa **450 exemplos sintéticos**, organizados em 150 grupos de cenários (30 por categoria, cada um nas três prioridades). Esses exemplos permitem executar o pipeline desde o primeiro uso; **não comprovam qualidade em e-mails pessoais reais**. A demonstração tem 24 mensagens fictícias, com essa origem indicada na interface. São 18 **editoriais**, com rótulos e resumo escritos à mão, que funcionam sem IA e que os modelos nunca alteram. As outras 6 são **ao vivo**: chegam sem rótulo nem resumo, o TF-IDF (com o Qev, se instalado) as classifica e o LLM as analisa na hora. Elas incluem os exemplos de `examples/` e casos difíceis: promoção com "só hoje", golpe pedindo senha com uma instrução maliciosa embutida para a IA, mensalidade da faculdade (financeiro, pelo guia de anotação) e prazos com data explícita.
 
-O treinamento fixa partições por hash do `group_id`: aproximadamente 60% treino, 20% validação e 20% teste. Todas as variações do mesmo cenário ficam juntas. No corpus inicial, a distribuição efetiva é 123/27/30. TF-IDF é ajustado no treino. O melhor classificador de cada tarefa é escolhido por macro-F1 na validação e avaliado no teste, sem usar o teste para escolher o modelo.
+O treinamento fixa partições por hash do `group_id`: aproximadamente 60% treino, 20% validação e 20% teste. Todas as variações do mesmo cenário ficam juntas. No corpus inicial, a distribuição efetiva é 252/93/105, com todas as classes presentes em cada partição. Remetentes, saudações, frases de contexto e frases de prazo da validação e do teste **nunca aparecem no treino**, então o resultado mede generalização, não memorização de templates. TF-IDF (palavras e n-gramas de caracteres) é ajustado no treino. O melhor classificador de cada tarefa é escolhido por macro-F1 na validação e avaliado no teste, sem usar o teste para escolher o modelo. Resultado atual no teste: macro-F1 de **0,86** para categoria e **0,79** para prioridade (classe majoritária: cerca de 0,05 e 0,19 na validação).
 
 Para treinar com seus dados, importe um CSV UTF-8 na área **Inteligência & dados**:
 
@@ -123,16 +152,33 @@ text,category,priority,group_id
 - `group_id`: identificador da conversa/cenário; mantenha-o consistente em todas as importações.
 - Textos idênticos são deduplicados na importação, mantendo a primeira anotação.
 - Corrigir na interface atualiza a organização imediatamente. As correções elegíveis entram no treino seguinte; grupos reservados para validação/teste não são promovidos para treino.
-- Após retreinar, previsões automáticas das mensagens reais são atualizadas. Correções do usuário e mensagens editoriais de demonstração são preservadas.
+- Após retreinar, previsões automáticas são atualizadas, inclusive nas mensagens de demonstração ao vivo. Correções do usuário e mensagens editoriais de demonstração são preservadas.
 - Ao importar dados reais, a avaliação passa a incluir o corpus sintético e o importado. A interface identifica esse escopo misto. Para uma conclusão acadêmica sobre generalização real, prepare também uma avaliação independente exclusivamente real.
 
 Veja [docs/AVALIACAO.md](docs/AVALIACAO.md) para o protocolo de anotação, limitações e roteiro de defesa.
+
+### Classificação combinada com o Qev (opcional)
+
+O [Qev 0.8B](https://huggingface.co/twainsk/qev-0.8b) é um modelo neural local de decisão (Apache-2.0): escolhe entre as definições do guia de anotação e devolve probabilidades, sem gerar texto. Com ele instalado, o Foco combina as probabilidades do TF-IDF e do Qev. Sem ele, nada muda.
+
+Instale uma vez com `preparar_qev.bat` (Windows) ou `./preparar_qev.command` (macOS). Precisa de [git](https://git-scm.com) e [uv](https://docs.astral.sh/uv/), internet e cerca de 3 GB. Código e modelos têm versões fixas; o código do runtime foi revisado antes de ser adotado.
+
+Como funciona:
+
+- O `iniciar` sobe o Qev em `127.0.0.1:11436`, sem rede e **sem gravar requisições**. Por padrão o `qev serve` guardaria cada requisição em disco; o Foco desativa isso para que o texto dos e-mails não seja copiado.
+- Mensagens recebem o rótulo do TF-IDF na hora. Um refinador em segundo plano consulta o Qev, combina as duas respostas e atualiza a mensagem. Correções do usuário e mensagens de demonstração nunca são alteradas.
+- Na primeira vez, o Qev responde os exemplos de validação e teste; depois o modelo é retreinado e a combinação (TF-IDF, Qev, média ponderada ou log-linear, com o peso de cada modelo) é **escolhida na validação**, como os demais modelos. A área **Inteligência & dados** mostra o progresso e o resultado.
+- As respostas ficam em cache por texto: retreinar não repete o Qev.
+- Os indícios por palavra continuam vindo do TF-IDF.
+
+O Qev carrega PyTorch e cerca de 1,8 GB de pesos e responde em menos de 1 s por e-mail num Mac M-series; na CPU do i7-1260P a latência não foi medida. Detalhes e resultados em [docs/AVALIACAO.md](docs/AVALIACAO.md).
 
 ## Privacidade e armazenamento
 
 - `.local-data/foco.sqlite3`: mensagens, metadados, rascunhos, feedback, tarefas e preferências.
 - `.local-data/classifier.joblib`: classificadores treinados. Carregue somente artefatos produzidos pelo próprio aplicativo.
 - `.local-data/ollama-models`: pesos do LLM.
+- `.local-data/qev`: runtime e pesos do Qev opcional. Respostas do Qev ficam no SQLite (`qev_cache`), por hash do texto.
 - Cofre de credenciais do sistema: tokens OAuth e client secret Google. Nenhum fallback grava esses segredos em texto puro.
 - A interface renderiza conteúdo de e-mail como **texto**, sem executar HTML, scripts ou carregar imagens remotas.
 - APIs de alteração exigem token de sessão local; há verificações de origem, Host e contexto de navegação. Serviços escutam apenas em loopback.
@@ -162,6 +208,20 @@ npx.cmd playwright install chromium
 npm.cmd run test:e2e
 ```
 
+No macOS, os mesmos comandos com `.venv/bin/python`, `npm` e `npx`:
+
+```bash
+FOCO_OLLAMA_URL=http://127.0.0.1:11435 .venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8765 --no-access-log
+```
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+```bash
+cd frontend && npm run build && npx playwright install chromium && npm run test:e2e
+```
+
 Os testes de navegador iniciam um backend isolado na porta 8770 e usam `artifacts/e2e-data`. Nunca apontam para a caixa pessoal. Se já houver Chromium do Playwright em outro caminho, `FOCO_BROWSER_PATH` permite selecioná-lo. Os testes de acessibilidade usam injeção controlada do axe em um contexto de teste; a política CSP de produção permanece ativa no aplicativo normal.
 
 Para iniciar também o Ollama durante o desenvolvimento, use `.venv\Scripts\python.exe run.py --no-browser` no lugar do comando direto de uvicorn. Em ambientes com restrição de gerenciamento de processos, o Playwright pode precisar de permissão para encerrar seu próprio servidor de teste no Windows.
@@ -171,6 +231,12 @@ Teste opcional com IA real, usando uma mensagem fictícia:
 ```powershell
 $env:FOCO_OLLAMA_URL = 'http://127.0.0.1:11435'
 .\.venv\Scripts\python.exe scripts/smoke_ai.py
+```
+
+No macOS, com `./iniciar.command` aberto (ele mantém o Ollama da porta 11435):
+
+```bash
+FOCO_OLLAMA_URL=http://127.0.0.1:11435 .venv/bin/python scripts/smoke_ai.py
 ```
 
 Ele salva o resultado em `artifacts/ai-smoke.json`. Consulte [docs/VALIDACAO.md](docs/VALIDACAO.md) para evidências e limites da validação desta entrega.
@@ -183,6 +249,7 @@ frontend/      React, TypeScript, estilos, fontes e testes de navegador
 scripts/       instalação, execução do Ollama e teste real de IA
 tests/         testes de integração, segurança, parsing e conectores
 docs/          avaliação e evidências de validação
+experiments/   comparações fora do aplicativo (Qev zero-shot)
 .local-data/   dados privados e modelos; ignorados pelo Git
 ```
 

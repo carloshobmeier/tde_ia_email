@@ -1,0 +1,2 @@
+# Launchers do macOS precisam de LF mesmo se o repositório passar por um Windows.
+*.command text eol=lf

@@ -65,6 +65,18 @@ O teste `scripts/smoke_ai.py` usou uma mensagem fictícia enviada em **25/09/202
 
 Resultados completos em `artifacts/ai-smoke.json` (artefato local, ignorado pelo Git). Esse cenário comprova a integração funcional com um modelo real; não estabelece fidelidade em todas as mensagens. O rascunho ainda pode sugerir afirmações que precisam ser corrigidas pelo usuário antes de qualquer envio.
 
+## macOS (Apple Silicon), 09/11/2026
+
+- `./instalar.command` com Python 3.12.8: `requirements-lock.txt` instalado (sem `pywin32-ctypes`), interface compilada.
+- Backend: os mesmos 27 testes aprovados. Cofre de credenciais: `keyring.backends.macOS.Keyring`. Após a revisão do classificador (corpus versão 2), a suíte tem 32 testes, todos aprovados: separação de frases entre treino e avaliação, todas as classes em todas as partições, piso de macro-F1 > 0,7, substituição do corpus antigo e indícios em palavras para qualquer modelo selecionado.
+- Atualização de uma instalação existente: banco com o corpus antigo (180 exemplos) e modelo sem versão; ao abrir, o Foco substituiu o corpus (450), retreinou e reclassificou as mensagens automaticamente.
+- Navegador: os 8 cenários aprovados em três execuções seguidas. O teste de acessibilidade passou a usar `reducedMotion: 'reduce'`, porque o fade-in de 0,35 s fazia o axe medir contraste com opacidade parcial em máquinas rápidas.
+- `./iniciar.command`: Ollama próprio localizado pelo Homebrew mesmo com PATH mínimo, servido na porta 11435 e encerrado com Ctrl+C; um Ollama preexistente na 11434 permaneceu intacto.
+- Em Apple Silicon, `num_gpu`/`num_thread` não são enviados; o Ollama usa Metal.
+- LLM real (`qwen3:4b` Q4_K_M, baixado por `./preparar_ia.command`): 37/37 camadas na GPU Metal, 3,26 GiB (pesos 2,3 GiB, cache 576 MiB). `smoke_ai.py` aprovado: ação identificada, prazo 26/09/2026 17h a partir da data de envio, evidência literal e prazo não confirmado. Tempos: análise 9,6 s com carregamento do modelo e 4,7 s com o modelo carregado; rascunho 2,2–2,6 s.
+- Pelo aplicativo: `.eml` importado, classificado (trabalho/urgente, indícios "17h", "por favor") e analisado pela fila.
+- **Limitação encontrada:** em `examples/pedido-revisao.eml`, o prazo foi extraído em 3 de 8 execuções (temperatura 0,1); nas outras 5, o modelo copiou a evidência como "às 1:00" em vez de "às 17h". Com temperatura 0, falha sempre nessa mensagem e acerta sempre na do `smoke_ai.py`, ou seja, depende da redação. A validação por evidência literal descartou a data em todas as falhas: nenhum prazo errado chegou à interface, mas o prazo deixou de ser sugerido. Pôr `due_evidence` antes de `due_at` no esquema piorou (0 de 8). Ainda não foi verificado se o mesmo ocorre na CPU do Windows.
+
 ## O que permanece dependente do usuário
 
 - Criar/configurar os aplicativos OAuth e consentir o acesso nas suas contas Gmail e Microsoft.
@@ -73,3 +85,11 @@ Resultados completos em `artifacts/ai-smoke.json` (artefato local, ignorado pelo
 - Confirmar a turma/data de defesa e preparar o conjunto demonstrativo que será apresentado.
 
 O código, a interface, os scripts de execução e os testes estão entregues. Essas etapas envolvem identidade, dados e hardware que precisam ser validados no contexto pessoal do usuário.
+
+## Qev integrado e demonstração ao vivo, macOS, 09/11/2026
+
+- Backend: 45 testes aprovados. Novos: combinação TF-IDF + Qev escolhida na validação, Qev restrito a loopback, respostas inválidas rejeitadas, servidor sempre com `--no-request-log`, fluxo completo com um Qev falso (cache, retreino, refinamento, correções preservadas), demonstração editorial protegida e ao vivo reclassificada, e as quatro salvaguardas do LLM.
+- Navegador: 8 cenários aprovados em duas execuções seguidas. Com a demonstração maior, o axe passou a medir os contadores da barra lateral (números de dois dígitos), que tinham contraste 3,41:1; as cores foram ajustadas para 4,54:1 e 5,16:1.
+- Aplicativo real com o Qev (runtime no commit revisado, modelo na revisão fixada): servidor em `127.0.0.1:11436`, nenhuma pasta de gravação de requisições criada. O refinador respondeu os 198 exemplos de validação/teste, o retreino escolheu média ponderada (categoria, 80% TF-IDF) e log-linear (prioridade, 75% TF-IDF), com macro-F1 no teste de 0,935 e 0,846, iguais ao experimento.
+- Migração: um banco existente ganhou a coluna `editorial`; as 12 mensagens de demonstração antigas foram marcadas como editoriais e a mensagem importada continuou ao vivo.
+- Demonstração ao vivo pelo aplicativo (classificação combinada e análise do LLM pela fila): revisão com prazo de amanhã às 17h correto; materiais sem prazo; promoção "só hoje" como promoções/baixa, sem ação; golpe com o alerta no lugar de "enviar senha"; mensalidade como financeiro, com prazo correto; almoço com prazo na sexta correta. O fuso do último veio em UTC (limitação registrada em AVALIACAO.md).

@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import urllib.request
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from scripts.runtime import AI_URL, ensure_ollama, stop_owned
+from scripts.runtime import AI_URL, ensure_ollama, launcher, stop_owned
 
 
 def main():
@@ -24,7 +24,7 @@ def main():
                 if status != last:
                     print(status, flush=True)
                     last = status
-        print("\nIA pronta. Abra o Foco com iniciar.bat.")
+        print(f"\nIA pronta. Abra o Foco com {launcher('iniciar')}.")
     finally:
         stop_owned(process, log)
 

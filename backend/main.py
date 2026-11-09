@@ -16,9 +16,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from .config import ROOT, PORT, ORIGIN, CATEGORIES, PRIORITIES, DEFAULT_MODEL
 from .db import init_db, connect, rows, get_setting, set_setting, now
-from . import ml, llm, providers
+from . import ml, llm, providers, qev
 from .demo import seed_demo
 from .mail import parse_eml, store_message
+from .refiner import run_refiner
 from .worker import enqueue, run_worker
 
 SESSION_TOKEN = secrets.token_urlsafe(32)
@@ -27,16 +28,20 @@ SESSION_TOKEN = secrets.token_urlsafe(32)
 @asynccontextmanager
 async def lifespan(app):
     init_db()
-    await asyncio.to_thread(ml.get_model)
+    if not await asyncio.to_thread(ml.is_current):
+        # Corpus novo após uma atualização: o job retreina e reclassifica as mensagens.
+        enqueue("train", "classifier")
     stop = asyncio.Event()
-    worker = asyncio.create_task(run_worker(stop))
+    # Fila de tarefas e refinador do Qev separados: um Qev lento não atrasa as análises do LLM.
+    tasks = [asyncio.create_task(run_worker(stop)), asyncio.create_task(run_refiner(stop))]
     yield
     stop.set()
-    worker.cancel()
-    try:
-        await worker
-    except asyncio.CancelledError:
-        pass
+    for task in tasks:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Foco local", version="1.0.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -378,6 +383,9 @@ async def ai_health():
 def ml_report():
     report = get_setting("ml_report", {})
     report["feedback_count"] = rows("SELECT COUNT(*) AS n FROM feedback")[0]["n"]
+    status = ml.qev_evaluation_status()
+    report["qev_live"] = {**status, "online": status["installed"] and qev.online(timeout=0.5),
+                          "used": bool(report.get("qev", {}).get("used"))}
     return report
 
 

@@ -1,5 +1,8 @@
 let token = '';
 export function setToken(value: string) { token = value; }
+export const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+export const modKey = isMac ? '⌘' : 'Ctrl';
+export const launcher = (name: string) => isMac ? `./${name}.command` : `${name}.bat`;
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (token) headers.set('X-Foco-Token', token);

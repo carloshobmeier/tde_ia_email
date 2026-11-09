@@ -15,7 +15,7 @@ test('primeiro uso e demonstração explícita', async ({ page }) => {
   await expect(page.getByRole('heading', { name: /Menos ruído/ })).toBeVisible();
   await page.getByRole('button', { name: 'Explorar demonstração', exact: true }).click();
   await expect(page.getByRole('heading', { name: /Seu foco agora/ })).toBeVisible();
-  await expect(page.locator('.message-row')).toHaveCount(12);
+  await expect(page.locator('.message-row')).toHaveCount(24);
   await page.screenshot({ path: '../artifacts/dashboard.png', fullPage: true });
 });
 
@@ -103,14 +103,15 @@ test('interface funciona com tráfego externo bloqueado', async ({ page }) => {
   await page.route('**/*', route => route.request().url().startsWith('http://127.0.0.1:8770') ? route.continue() : route.abort());
   await reset(page);
   await expect(page.getByRole('heading', { name: /Seu foco agora/ })).toBeVisible();
-  await page.locator('.message-open').first().click();
+  await page.locator('.message-open', { hasText: 'Um último ajuste no projeto de IA' }).first().click();
   await expect(page.locator('.summary-text')).toBeVisible();
   await page.getByRole('button', { name: 'Mensagem original' }).click();
   await expect(page.locator('.original-body')).toContainText('matriz de confusão');
 });
 
 test('acessibilidade da visão principal em temas claro e escuro', async ({ browser }) => {
-  const context = await browser.newContext({ bypassCSP: true });
+  // Sem animação: o fade-in de .page-content (0,35 s) faria o axe medir contraste com opacidade parcial em máquinas rápidas.
+  const context = await browser.newContext({ bypassCSP: true, reducedMotion: 'reduce' });
   const page = await context.newPage();
   await reset(page);
   await expect(page.getByRole('heading', { name: /Seu foco agora/ })).toBeVisible();

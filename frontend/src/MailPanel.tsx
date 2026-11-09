@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, Check, CheckCheck, Clock3, Copy, ExternalLink, FileText, Lightbulb, LoaderCircle, RefreshCw, Save, Send, ShieldCheck, Sparkles, Star, X } from 'lucide-react';
-import { api, patch, post, categoryNames, dateLabel } from './api';
+import { api, patch, post, categoryNames, dateLabel, modKey } from './api';
 import { Avatar, PriorityBadge, Spinner, useDialog } from './components';
 import type { Category, Job, Mail, Priority } from './types';
 
@@ -30,7 +30,7 @@ export default function MailPanel({ id, jobs, onClose, onChange, notify }: Props
     try { await patch(`/messages/${id}`, { draft: text }); setDirty(false); onChange(); notify('Rascunho salvo neste computador.'); }
     catch (e) { notify((e as Error).message, true); } finally { setSaving(false); }
   }
-  async function copy() { try { await navigator.clipboard.writeText(text); notify('Rascunho copiado. Revise antes de enviar.'); } catch { notify('Selecione o rascunho e use Ctrl+C para copiar.', true); } }
+  async function copy() { try { await navigator.clipboard.writeText(text); notify('Rascunho copiado. Revise antes de enviar.'); } catch { notify(`Selecione o rascunho e use ${modKey}+C para copiar.`, true); } }
   const analysis = mail?.analysis;
   const safeLink = mail?.source_url && /^https:\/\/(mail\.google\.com|outlook\.(office\.com|office365\.com|live\.com))\//.test(mail.source_url) ? mail.source_url : null;
   return <div className="drawer-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}><div className="mail-panel" ref={ref} role="dialog" aria-modal="true" aria-label="Leitura do e-mail">

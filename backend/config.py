@@ -10,5 +10,8 @@ PORT = int(os.environ.get("FOCO_PORT", "8765"))
 ORIGIN = f"http://127.0.0.1:{PORT}"
 OLLAMA_URL = os.environ.get("FOCO_OLLAMA_URL", "http://127.0.0.1:11434")
 DEFAULT_MODEL = "qwen3:4b"
+# Qev opcional (modelo de decisão local), instalado por preparar_qev em .local-data/qev.
+QEV_URL = os.environ.get("FOCO_QEV_URL", "http://127.0.0.1:11436")
+QEV_MODEL_DIR = DATA / "qev" / "models" / "qev-0.8b"
 CATEGORIES = ["faculdade", "trabalho", "financeiro", "pessoal", "promocoes"]
 PRIORITIES = ["urgente", "normal", "baixa"]

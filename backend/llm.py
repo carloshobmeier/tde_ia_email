@@ -1,5 +1,8 @@
 import json
-from datetime import datetime
+import platform
+import re
+import sys
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, Field, ValidationError
@@ -9,6 +12,14 @@ from .db import get_setting, set_setting, now
 
 class AIError(Exception):
     pass
+
+
+# Perfil de destino (i7-1260P, sem GPU dedicada): CPU com 6 threads.
+# Apple Silicon: memória unificada e Metal; o Ollama escolhe GPU e threads sozinho.
+APPLE_SILICON = sys.platform == "darwin" and platform.machine() == "arm64"
+DEVICE = "GPU Metal (Apple Silicon)" if APPLE_SILICON else "CPU (num_gpu=0)"
+OPTIONS = {"temperature": 0.1, "num_ctx": 4096, "num_predict": 900,
+           **({} if APPLE_SILICON else {"num_thread": 6, "num_gpu": 0})}
 
 
 class Analysis(BaseModel):
@@ -86,7 +97,7 @@ async def generate(message, schema, instruction):
             response = await client.post(base_url() + "/api/chat", json={
                 "model": model, "stream": False, "think": False, "keep_alive": "5m",
                 "format": wire_schema(schema),
-                "options": {"temperature": 0.1, "num_ctx": 4096, "num_predict": 900, "num_thread": 6, "num_gpu": 0},
+                "options": OPTIONS,
                 "messages": [{"role": "system", "content": SYSTEM + instruction},
                              {"role": "user", "content": "DADOS DO E-MAIL:\n" + json.dumps(context, ensure_ascii=False)}],
             })
@@ -107,6 +118,24 @@ async def generate(message, schema, instruction):
         raise AIError("Ollama não conseguiu concluir a solicitação. Verifique o modelo e a memória disponível.") from exc
 
 
+SENSITIVE_ACTION = re.compile(r"senha|c[oó]digo de (verifica|seguran|acesso|confirma)|\btoken\b|\bpin\b|"
+                              r"dados banc[aá]rios|n[uú]mero do cart[aã]o|\bcvv\b", re.IGNORECASE)
+EMPTY_ACTIONS = {"", "null", "none", "nenhuma", "nenhum", "n/a", "-", "sem ação", "nenhuma ação"}
+CREDENTIAL_WARNING = ("Envolve senha ou código de acesso: confira o remetente e nunca responda com essas "
+                      "informações. Pode ser golpe.")
+
+
+def plausible_deadline(due_at, received_at):
+    """Prazo entre um dia antes e um ano depois do envio (o modelo às vezes erra o ano)."""
+    try:
+        sent = datetime.fromisoformat(received_at)
+    except (TypeError, ValueError):
+        return True  # sem data de envio, valem as demais verificações
+    if sent.tzinfo is None:
+        return True
+    return sent - timedelta(days=1) <= due_at <= sent + timedelta(days=366)
+
+
 async def analyze(message):
     result = await generate(message, Analysis, """
 Resuma em até duas frases. Extraia até 4 pontos objetivos e a principal ação pedida ao destinatário.
@@ -117,9 +146,23 @@ Se há dia mas não horário, use 23:59 nesse dia. due_evidence deve copiar um t
 Promoção com contagem regressiva não implica obrigação. needs_review=true se há dúvida.
 """)
     data = result.model_dump(mode="json")
+    action = result.action
+    # O modelo às vezes escreve "null" como texto em vez de null no JSON.
+    if action and action.strip().strip(".").casefold() in EMPTY_ACTIONS:
+        action = None
+    # Nunca transformar um pedido de senha ou código em "próxima ação": é o formato típico de golpe.
+    if action and SENSITIVE_ACTION.search(action):
+        action = None
+        data["key_points"] = [CREDENTIAL_WARNING, *data["key_points"]][:4]
+        data["needs_review"] = True
+    # Guia de anotação: promoção não cria obrigação, mesmo com "só hoje" ou contagem regressiva.
+    if message.get("category") == "promocoes":
+        action = None
+    data["action"] = action
     original = (message["subject"] + "\n" + message["body"]).casefold()
     evidence = (result.due_evidence or "").strip()
-    if result.due_at and (not result.due_at.tzinfo or not evidence or evidence.casefold() not in original or not result.action):
+    if result.due_at and (not result.due_at.tzinfo or not evidence or evidence.casefold() not in original or not action
+                          or not plausible_deadline(result.due_at, message.get("received_at"))):
         data.update(due_at=None, needs_review=True)
     data["due_confirmed"] = False
     data["truncated"] = len(message["body"]) > 8000
