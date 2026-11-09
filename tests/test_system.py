@@ -16,7 +16,7 @@ os.environ["FOCO_DATA_DIR"] = _temp.name
 import httpx
 from fastapi.testclient import TestClient
 import numpy as np
-from backend import corpus, db, llm, ml, providers, qev, refiner
+from backend import corpus, db, llm, ml, providers, qev, refiner, scam
 from backend.main import app, SESSION_TOKEN, serialize
 from backend.mail import parse_eml, html_to_text, store_message
 from backend.worker import enqueue, execute
@@ -54,6 +54,8 @@ class AppTests(unittest.TestCase):
         cls.worker_patch.start()
         cls.refiner_patch = patch("backend.main.run_refiner", idle_worker)
         cls.refiner_patch.start()
+        cls.scam_patch = patch("backend.main.run_scam_checker", idle_worker)
+        cls.scam_patch.start()
         cls.client = TestClient(app)
         cls.client.__enter__()
         cls.client.headers["X-Foco-Token"] = SESSION_TOKEN
@@ -63,6 +65,7 @@ class AppTests(unittest.TestCase):
         cls.client.__exit__(None, None, None)
         cls.worker_patch.stop()
         cls.refiner_patch.stop()
+        cls.scam_patch.stop()
 
     def setUp(self):
         with db.connect() as conn:
@@ -253,6 +256,59 @@ class AppTests(unittest.TestCase):
                 ml.train()
         self.assertFalse(ml.get_model().get("ensemble"))
 
+    def scam_step(self, verdict):
+        checker = AsyncMock(side_effect=verdict) if isinstance(verdict, Exception) else AsyncMock(return_value=verdict)
+        with patch.object(llm, "health", AsyncMock(return_value={"ready": True})), patch.object(llm, "check_scam", checker):
+            return asyncio.run(scam.step())
+
+    def test_scam_flag_removes_urgency_until_dismissed(self):
+        message = self.import_one()
+        analysis = {"summary": "Cobrança", "action": "pagar o boleto", "due_at": None, "due_confirmed": False}
+        with db.connect() as conn:
+            conn.execute("UPDATE messages SET priority='urgente',analysis=?,received_at=? WHERE id=?",
+                         (json.dumps(analysis), datetime.now(timezone.utc).isoformat(), message["id"]))
+        self.assertEqual(self.client.get("/api/stats").json()["urgent"], 1)
+        self.assertEqual(self.scam_step((True, "Pede pagamento com pressa.")), 0)
+        flagged = self.client.get("/api/messages/" + message["id"]).json()
+        self.assertTrue(flagged["scam_flag"])
+        self.assertEqual(flagged["effective_priority"], "baixa")
+        self.assertEqual(flagged["scam_reason"], "Pede pagamento com pressa.")
+        self.assertEqual(self.client.get("/api/messages", params={"view": "actions"}).json()["total"], 0)
+        stats = self.client.get("/api/stats").json()
+        self.assertEqual((stats["urgent"], stats["actions"]), (0, 0))
+        restored = self.client.patch("/api/messages/" + message["id"], json={"scam_dismissed": True}).json()
+        self.assertFalse(restored["scam_flag"])
+        self.assertEqual(restored["effective_priority"], "urgente")
+        self.assertEqual(self.client.get("/api/stats").json()["urgent"], 1)
+
+    def test_changed_content_is_checked_again(self):
+        message = self.import_one()
+        with db.connect() as conn:
+            conn.execute("UPDATE messages SET scam=1,scam_reason='x' WHERE id=?", (message["id"],))
+        store_message(message["account_id"], {"remote_id": message["remote_id"], "subject": "Revisar proposta",
+                                               "body": "Texto novo.", "sender": "Ana", "sender_email": "ana@example.com",
+                                               "received_at": message["received_at"]})
+        self.assertIsNone(db.rows("SELECT scam FROM messages WHERE id=?", (message["id"],))[0]["scam"])
+
+    def test_scam_checker_skips_editorial_and_old_mail(self):
+        self.client.post("/api/demo")
+        self.import_one()
+        old = db.rows("SELECT id FROM messages WHERE subject='Revisar proposta'")[0]  # de 25/09/2026: fora da janela de 30 dias
+        for _ in range(20):
+            if self.scam_step((False, None)):
+                break
+        rows = db.rows("SELECT id,editorial,scam FROM messages")
+        self.assertTrue(all(r["scam"] is None for r in rows if r["editorial"]), "editoriais não são verificados")
+        self.assertTrue(all(r["scam"] == 0 for r in rows if not r["editorial"] and r["id"] != old["id"]))
+        self.assertIsNone(next(r for r in rows if r["id"] == old["id"])["scam"])
+
+    def test_scam_check_failure_is_not_retried_forever(self):
+        message = self.import_one()
+        with db.connect() as conn:
+            conn.execute("UPDATE messages SET received_at=? WHERE id=?", (datetime.now(timezone.utc).isoformat(), message["id"]))
+        self.scam_step(llm.AIError("formato inválido"))
+        self.assertEqual(db.rows("SELECT scam FROM messages WHERE id=?", (message["id"],))[0]["scam"], -1)
+
     def test_bad_csv_is_atomic(self):
         before = len(db.rows("SELECT * FROM samples"))
         csv = b"text,category,priority,group_id\nvalid text,trabalho,normal,t1\nbad text,banana,normal,t2\n"
@@ -397,6 +453,12 @@ class ParsingAndAITests(unittest.TestCase):
         self.assertIsNone(parsed["action"])
         self.assertIsNone(parsed["due_at"])
         self.assertEqual(parsed["key_points"][0], llm.CREDENTIAL_WARNING)
+
+    def test_scam_reason_is_short(self):
+        with patch("backend.llm.generate", AsyncMock(return_value=llm.ScamCheck(golpe=True, motivo="sinal " * 200))):
+            flagged, reason = asyncio.run(llm.check_scam({"subject": "x", "body": "y"}))
+        self.assertTrue(flagged)
+        self.assertLessEqual(len(reason), 280)
 
     def test_null_written_as_text_is_no_action(self):
         # Caso real: action="null" (texto) manteria um "prazo" cuja evidência diz que não há prazo.

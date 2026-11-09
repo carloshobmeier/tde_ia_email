@@ -80,7 +80,7 @@ def store_message(account_id, message):
             db.execute("""UPDATE messages SET subject=:subject,body=:body,content_hash=:content_hash,
                 category=CASE WHEN corrected=0 THEN :category ELSE category END,
                 priority=CASE WHEN corrected=0 THEN :priority ELSE priority END,
-                confidence=:confidence,signals=:signals,
+                confidence=:confidence,signals=:signals,scam=NULL,scam_reason=NULL,
                 analysis=NULL,analysis_source=NULL,draft=NULL,analyzed_at=NULL WHERE id=:id""", values)
         else:
             db.execute("""INSERT INTO messages(id,account_id,remote_id,thread_id,sender,sender_email,subject,body,

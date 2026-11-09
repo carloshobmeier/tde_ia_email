@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { ArrowUpRight, Check, LoaderCircle, Mail, Sparkles, X } from 'lucide-react';
+import { ArrowUpRight, Check, LoaderCircle, Mail, ShieldAlert, Sparkles, X } from 'lucide-react';
 import type { Mail as Message, Priority } from './types';
 import { categoryNames, dateLabel, initials } from './api';
 
@@ -11,6 +11,9 @@ export function ProviderIcon({ provider }: { provider: string }) {
 }
 export function PriorityBadge({ priority }: { priority: Priority }) {
   return <span className={`priority-badge ${priority}`}><i />{priority === 'urgente' ? 'Prioridade alta' : priority === 'normal' ? 'Normal' : 'Sem pressa'}</span>;
+}
+export function ScamBadge() {
+  return <span className="scam-badge"><ShieldAlert size={12} aria-hidden="true" />Possível golpe</span>;
 }
 export function Avatar({ name, category, size = '' }: { name: string; category: string; size?: string }) {
   return <span className={`avatar ${category} ${size}`}>{initials(name)}</span>;

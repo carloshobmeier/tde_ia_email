@@ -20,6 +20,7 @@ from . import ml, llm, providers, qev
 from .demo import seed_demo
 from .mail import parse_eml, store_message
 from .refiner import run_refiner
+from .scam import SCAM_SQL, run_scam_checker
 from .worker import enqueue, run_worker
 
 SESSION_TOKEN = secrets.token_urlsafe(32)
@@ -32,8 +33,9 @@ async def lifespan(app):
         # Corpus novo após uma atualização: o job retreina e reclassifica as mensagens.
         enqueue("train", "classifier")
     stop = asyncio.Event()
-    # Fila de tarefas e refinador do Qev separados: um Qev lento não atrasa as análises do LLM.
-    tasks = [asyncio.create_task(run_worker(stop)), asyncio.create_task(run_refiner(stop))]
+    # Fila de tarefas, refinador do Qev e alerta de golpe separados: nenhum atrasa os outros.
+    tasks = [asyncio.create_task(run_worker(stop)), asyncio.create_task(run_refiner(stop)),
+             asyncio.create_task(run_scam_checker(stop))]
     yield
     stop.set()
     for task in tasks:
@@ -102,6 +104,10 @@ def serialize(message, detail=False):
                 item["effective_priority"] = "urgente"
         except (ValueError, TypeError):
             pass
+    # Golpe suspeito nunca é "urgente": urgência é justamente o que o golpista quer provocar.
+    item["scam_flag"] = item.get("scam") == 1 and not item.get("scam_dismissed")
+    if item["scam_flag"]:
+        item["effective_priority"] = "baixa"
     if not detail:
         item.pop("body", None)
         item.pop("draft", None)
@@ -141,22 +147,22 @@ def messages(account: str = "", q: str = "", category: str = "", view: str = "al
     elif view == "snoozed":
         clauses.append("m.status!='done' AND julianday(m.snoozed_until)>julianday('now')")
     elif view == "actions":
-        clauses.append("m.status!='done' AND COALESCE(julianday(m.snoozed_until),0)<=julianday('now') AND COALESCE(json_extract(m.analysis,'$.action'),'')!=''")
+        clauses.append(f"m.status!='done' AND COALESCE(julianday(m.snoozed_until),0)<=julianday('now') AND COALESCE(json_extract(m.analysis,'$.action'),'')!='' AND NOT {SCAM_SQL}")
     elif view == "today":
         clauses.append("m.status!='done' AND COALESCE(julianday(m.snoozed_until),0)<=julianday('now')")
     where = " WHERE " + " AND ".join(clauses) if clauses else ""
     total = rows("SELECT COUNT(*) AS n FROM messages m" + where, params)[0]["n"]
     order = "julianday(m.received_at) DESC"
     if view in ("today", "actions"):
-        order = f"CASE WHEN {URGENT_SQL} THEN 0 WHEN m.priority='normal' THEN 1 ELSE 2 END, CASE WHEN COALESCE(json_extract(m.analysis,'$.action'),'')!='' THEN 0 ELSE 1 END," + order
+        order = f"CASE WHEN {SCAM_SQL} THEN 3 WHEN {URGENT_SQL} THEN 0 WHEN m.priority='normal' THEN 1 ELSE 2 END, CASE WHEN COALESCE(json_extract(m.analysis,'$.action'),'')!='' THEN 0 ELSE 1 END," + order
     # A paginação acontece no SQLite; corpos inteiros e rascunhos só são lidos ao abrir a mensagem.
-    fields = "m.id,m.account_id,m.remote_id,m.thread_id,m.sender,m.sender_email,m.subject,substr(m.body,1,220) AS body,m.received_at,m.category,m.priority,m.confidence,m.signals,m.unread,m.starred,m.status,m.snoozed_until,m.analysis,m.analysis_source,m.analyzed_at,m.source_url,m.corrected,a.email AS account_email,a.name AS account_name,a.color AS account_color,a.demo,a.provider"
+    fields = "m.id,m.account_id,m.remote_id,m.thread_id,m.sender,m.sender_email,m.subject,substr(m.body,1,220) AS body,m.received_at,m.category,m.priority,m.confidence,m.signals,m.unread,m.starred,m.status,m.snoozed_until,m.analysis,m.analysis_source,m.analyzed_at,m.source_url,m.corrected,m.scam,m.scam_reason,m.scam_dismissed,a.email AS account_email,a.name AS account_name,a.color AS account_color,a.demo,a.provider"
     data = rows(f"SELECT {fields} FROM messages m JOIN accounts a ON a.id=m.account_id" + where + " ORDER BY " + order + " LIMIT ? OFFSET ?", [*params, min(max(limit, 1), 200), max(0, offset)])
     return {"items": [serialize(m) for m in data], "total": total}
 
 
-URGENT_SQL = """(m.priority='urgente' OR (m.status!='done' AND json_extract(m.analysis,'$.due_confirmed')=1
-    AND julianday(json_extract(m.analysis,'$.due_at'))<=julianday('now','+1 day')))"""
+URGENT_SQL = f"""(NOT {SCAM_SQL} AND (m.priority='urgente' OR (m.status!='done' AND json_extract(m.analysis,'$.due_confirmed')=1
+    AND julianday(json_extract(m.analysis,'$.due_at'))<=julianday('now','+1 day'))))"""
 
 
 @app.get("/api/stats")
@@ -164,7 +170,7 @@ def stats():
     active = "m.status!='done' AND COALESCE(julianday(m.snoozed_until),0)<=julianday('now')"
     data = rows(f"""SELECT COUNT(*) AS total,
         COALESCE(SUM(({active}) AND {URGENT_SQL}),0) AS urgent,
-        COALESCE(SUM(({active}) AND COALESCE(json_extract(m.analysis,'$.action'),'')!=''),0) AS actions,
+        COALESCE(SUM(({active}) AND COALESCE(json_extract(m.analysis,'$.action'),'')!='' AND NOT {SCAM_SQL}),0) AS actions,
         COALESCE(SUM(m.status='done'),0) AS done,COALESCE(SUM(m.unread),0) AS unread,
         COALESCE(SUM(m.analysis IS NULL),0) AS pending_analysis,COALESCE(SUM(a.demo),0) AS demo
         FROM messages m JOIN accounts a ON a.id=m.account_id""")[0]
@@ -188,6 +194,7 @@ class MessageUpdate(BaseModel):
     priority: Literal["urgente", "normal", "baixa"] | None = None
     draft: str | None = Field(default=None, max_length=10000)
     confirm_due: bool | None = None
+    scam_dismissed: bool | None = None
 
 
 @app.patch("/api/messages/{message_id}")

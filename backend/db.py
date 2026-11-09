@@ -46,6 +46,7 @@ def init_db():
             analysis TEXT, analysis_source TEXT, draft TEXT, analyzed_at TEXT,
             source_url TEXT, content_hash TEXT NOT NULL, corrected INTEGER NOT NULL DEFAULT 0,
             editorial INTEGER NOT NULL DEFAULT 0,
+            scam INTEGER, scam_reason TEXT, scam_dismissed INTEGER NOT NULL DEFAULT 0,
             UNIQUE(account_id,remote_id)
         );
         CREATE INDEX IF NOT EXISTS messages_received ON messages(received_at DESC);
@@ -74,9 +75,14 @@ def init_db():
         db.execute("UPDATE jobs SET status='queued' WHERE status='running'")
         # editorial=1: rótulos e resumo escritos à mão na demonstração; os modelos não os alteram.
         # Bancos anteriores só tinham mensagens editoriais nas contas de demonstração.
-        if "editorial" not in {row[1] for row in db.execute("PRAGMA table_info(messages)")}:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(messages)")}
+        if "editorial" not in columns:
             db.execute("ALTER TABLE messages ADD COLUMN editorial INTEGER NOT NULL DEFAULT 0")
             db.execute("UPDATE messages SET editorial=1 WHERE account_id IN (SELECT id FROM accounts WHERE demo=1)")
+        # Alerta de golpe: scam NULL = ainda não verificado, 1 = suspeito, 0 = sem sinais, -1 = falha na verificação.
+        for column, ddl in (("scam", "INTEGER"), ("scam_reason", "TEXT"), ("scam_dismissed", "INTEGER NOT NULL DEFAULT 0")):
+            if column not in columns:
+                db.execute(f"ALTER TABLE messages ADD COLUMN {column} {ddl}")
 
 
 def get_setting(key, default=None):

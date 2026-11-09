@@ -130,6 +130,21 @@ Limitações que continuam: datas por dia da semana ("até sexta") às vezes cae
 
 O teste real automatizado em `scripts/smoke_ai.py` verifica apenas um cenário de prazo relativo e geração de rascunho. Isso é evidência funcional, não uma avaliação abrangente da qualidade do LLM.
 
+## Alerta de golpe
+
+Objetivo: um golpe não deve aparecer como "urgente", que é justamente a reação que o golpista quer provocar. Avaliamos dois detectores locais em e-mails fictícios (`experiments/scam/emails.py`): um conjunto de desenvolvimento (6 golpes, 6 legítimos) para escolher formatos e prompts, e um de avaliação (10 golpes, 10 legítimos que *parecem* sensíveis: redefinição de senha, código de verificação, aviso de acesso, boletos, Pix). Pergunta, prompt e limiar foram fixados antes de olhar a avaliação.
+
+| Detector | Golpes sinalizados | Legítimos sinalizados por engano |
+|---|---|---|
+| Qev 0.8B, pergunta sim/não em português fixada antes | 0 de 10 | 1 de 10 |
+| Qev 0.8B, melhor de quatro formatos no desenvolvimento ("escolha" em português) | 0 de 10 | 1 de 10 |
+| LLM local (Qwen3 4B), um prompt fixado antes (desenvolvimento) | 6 de 6 | 0 de 6 |
+| **LLM local (Qwen3 4B), avaliação** | **10 de 10** | **1 de 10** |
+
+O Qev, apesar de bom em categoria, não reconhece golpes sem treino: chega a dar probabilidade maior a e-mails legítimos (código de verificação, aviso de acesso) do que a golpes reais. O conjunto de avaliação foi usado duas vezes no caso do Qev (a pergunta fixada e o formato escolhido no desenvolvimento), o que registramos aqui. O LLM errou só no "seu código de verificação é…", o caso clássico de ambiguidade. Leva cerca de 3 a 4 s por e-mail na GPU do Mac; na CPU do i7-1260P não foi medido.
+
+Decisões de projeto: o alerta usa o LLM em segundo plano, uma mensagem por vez, só nos últimos 30 dias; mensagem suspeita perde a urgência e sai de **Minhas ações**; o usuário pode desfazer com **Não é golpe**. Conjunto pequeno e fictício: isto mostra que o mecanismo funciona e onde erra, não a taxa de acerto em e-mails reais. Reproduzir com `experiments/scam/qev_scam.py` (Qev) e `experiments/scam/llm_scam.py` (LLM), com o Foco aberto.
+
 ## Roteiro de demonstração (8–10 minutos)
 
 1. **Problema (1 min):** várias contas e decisões misturadas; apresentar Meu dia.
@@ -137,7 +152,7 @@ O teste real automatizado em `scripts/smoke_ai.py` verifica apenas um cenário d
 3. **ML (2 min):** abrir classificação, corrigir um rótulo, mostrar comparação e matriz de confusão (com o Qev: TF-IDF, Qev e "TF-IDF + Qev"). Explicitar quais dados são sintéticos e quais são reais. Na promoção ao vivo "só hoje", o Qev sozinho diria urgente e a combinação corrige para baixa.
 4. **LLM (2 min):** analisar a "Revisão do relatório" ao vivo, conferir a evidência do prazo e criar um rascunho. Deixar o modelo carregado antes de apresentar.
 5. **Saída e integração (1 min):** confirmar prazo, concluir uma ação, filtrar outra conta e recarregar a página para demonstrar persistência.
-6. **Ética e limites (1 min):** analisar o golpe ao vivo "Confirme seus dados de acesso". O LLM ignora a instrução embutida e o Foco troca "enviar senha" por um alerta. Mostrar também o original, a revisão humana, a ausência de envio automático e as incertezas.
+6. **Ética e limites (1 min):** abrir o golpe ao vivo "Confirme seus dados de acesso". Ele chega com o selo **Possível golpe**, sem urgência; ao analisar, o LLM ignora a instrução embutida e o Foco troca "enviar senha" por um alerta. Mostrar o botão **Não é golpe** (a decisão final é do usuário). Mostrar também o original, a revisão humana, a ausência de envio automático e as incertezas.
 7. **Evidência local (1 min):** com dependências/modelo previamente instalados, desconectar a rede e gerar uma análise nova. Conectores precisam de rede; IA local não.
 
 Preparar um conjunto demonstrativo sem dados pessoais e um vídeo de contingência identificado como gravação. Não depender de autorização OAuth ao vivo no dia da defesa.

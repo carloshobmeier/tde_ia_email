@@ -173,6 +173,15 @@ Como funciona:
 
 O Qev carrega PyTorch e cerca de 1,8 GB de pesos e responde em menos de 1 s por e-mail num Mac M-series; na CPU do i7-1260P a latência não foi medida. Detalhes e resultados em [docs/AVALIACAO.md](docs/AVALIACAO.md).
 
+### Alerta de golpe
+
+Em segundo plano, o LLM local verifica as mensagens dos últimos 30 dias, uma por vez e das mais recentes para as mais antigas, procurando sinais de golpe: pedido de senha, código ou dados bancários, ameaça de bloqueio, taxa para liberar prêmio ou encomenda, Pix com pressa, alguém se passando por banco, chefe ou parente.
+
+- Uma mensagem suspeita recebe o selo **Possível golpe** e o motivo. Ela **deixa de ser urgente** (urgência é o que o golpista quer provocar) e sai de **Minhas ações**, para que um boleto falso não vire tarefa.
+- O botão **Não é golpe** desfaz o alerta, e **Desfazer** volta atrás. O alerta é automático e pode errar; a decisão é do usuário.
+- Mensagens editoriais da demonstração não são verificadas. Uma análise pedida pelo usuário espera no máximo uma verificação.
+- O Qev foi avaliado para esta tarefa e não serviu (0 de 10 golpes). O LLM, com o mesmo protocolo, sinalizou 10 de 10 golpes e 1 de 10 mensagens legítimas. Ver [docs/AVALIACAO.md](docs/AVALIACAO.md).
+
 ## Privacidade e armazenamento
 
 - `.local-data/foco.sqlite3`: mensagens, metadados, rascunhos, feedback, tarefas e preferências.
