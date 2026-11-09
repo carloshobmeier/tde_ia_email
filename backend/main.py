@@ -61,8 +61,13 @@ async def local_security(request: Request, call_next):
     if request.method not in ("GET", "HEAD", "OPTIONS"):
         if not secrets.compare_digest(request.headers.get("x-foco-token", ""), SESSION_TOKEN):
             return JSONResponse({"detail": "Sessão local expirada. Atualize a página."}, status_code=403)
-    # Impede páginas externas de lerem ou iniciarem operações no serviço local.
-    if request.headers.get("sec-fetch-site") == "cross-site" and not request.url.path.startswith("/auth/"):
+    # Impede páginas externas de lerem ou iniciarem operações no serviço local. Abrir o aplicativo
+    # por um link (navegação de página inteira, fora de /api) é permitido: a página é estática, não
+    # pode ser emoldurada (frame-ancestors 'none') e tudo o que ela carrega depois é da mesma origem.
+    page_visit = (request.method == "GET" and request.headers.get("sec-fetch-mode") == "navigate"
+                  and request.headers.get("sec-fetch-dest") == "document" and not request.url.path.startswith("/api/"))
+    if (request.headers.get("sec-fetch-site") == "cross-site" and not page_visit
+            and not request.url.path.startswith("/auth/")):
         return JSONResponse({"detail": "Requisição externa bloqueada."}, status_code=403)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"

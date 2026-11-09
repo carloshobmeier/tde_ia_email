@@ -88,6 +88,16 @@ class AppTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/bootstrap", headers={"Sec-Fetch-Site": "cross-site"}).status_code, 403)
         self.assertIn("frame-ancestors 'none'", self.client.get("/api/bootstrap").headers["Content-Security-Policy"])
 
+    def test_link_from_another_site_opens_the_page_but_not_the_api(self):
+        # Clicar num link para o Foco em outro site (GitHub, chat) não pode dar "Requisição externa bloqueada".
+        navigation = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+        self.assertNotEqual(self.client.get("/", headers=navigation).status_code, 403)
+        self.assertEqual(self.client.get("/api/bootstrap", headers=navigation).status_code, 403)
+        embedded = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}
+        self.assertEqual(self.client.get("/", headers=embedded).status_code, 403)
+        script = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}
+        self.assertEqual(self.client.get("/", headers=script).status_code, 403)
+
     def test_demo_is_explicit_and_repeatable(self):
         self.assertEqual(self.client.get("/api/stats").json()["total"], 0)
         self.assertEqual(self.client.post("/api/demo").status_code, 200)
